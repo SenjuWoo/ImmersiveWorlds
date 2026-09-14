@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Immersive Worlds mark">
+  <rect width="64" height="64" rx="14" fill="#2ee6c5"/>
+  <path fill="#0b0e08" d="M8 50h48v6H8z"/>
+  <path fill="#0b0e08" d="M11 50V30h7v20h-7zm9 0V16h11v34H20zm13 0V28h8v22h-8zm10 0V22h10v28H43z"/>
+  <rect x="23" y="22" width="3" height="4" fill="#2ee6c5"/>
+  <rect x="28" y="22" width="3" height="4" fill="#2ee6c5"/>
+  <rect x="23" y="29" width="3" height="4" fill="#2ee6c5"/>
+  <rect x="28" y="29" width="3" height="4" fill="#2ee6c5"/>
+  <circle cx="48" cy="14" r="6" fill="#0b0e08"/>
+  <path fill="#2ee6c5" d="M48 10.6v4l2.8 1.6-.7 1.2L47 15.2V10.6h1z"/>
+</svg>

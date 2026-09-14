@@ -1,93 +1,136 @@
-# Immersive Worlds: Living Cities
+<p align="center">
+  <img src="assets/mark.svg" width="72" height="72" alt="Immersive Worlds mark">
+</p>
 
-A SillyTavern extension that turns every roleplay chat into a **persistent, living world**. Instead of a static lore dump, a background "director" quietly maintains a real simulation — a city with a clock, weather, streets you can travel, people with goals, items with owners, factions, rumors, and events — and weaves its atmosphere into every single reply.
+<h1 align="center">Immersive Worlds</h1>
 
-> **v1.5.0** — Character making is first-class: any world NPC becomes a deep SillyTavern character card with a bundled world lorebook, an AI forge casts new characters on demand, and quest threads are now visible in the panel.
+<p align="center"><strong>A city that keeps living between messages.</strong></p>
 
----
+<p align="center">
+  SillyTavern extension that runs a background director over every chat:<br>
+  clock, weather, streets, NPCs with routines, items, factions, rumors, quests.
+</p>
 
-## Features
+<p align="center">
+  <a href="https://github.com/ShugokiFable/ImmersiveWorlds/actions/workflows/ci.yml"><img src="https://github.com/ShugokiFable/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ee6c5?labelColor=0d0f11" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/version-1.5.0-8f9aa6?labelColor=0d0f11" alt="v1.5.0">
+  <img src="https://img.shields.io/badge/SillyTavern-%E2%89%A5%201.18.0-8f9aa6?labelColor=0d0f11" alt="SillyTavern 1.18+">
+</p>
 
-### 🏙️ A world that exists between messages
-- **AI bootstrap** — one click generates a whole city: locations, NPCs, items, factions, events, and a premise, all coherent with your character.
-- **Living director** — after every turn the director advances the clock, shifts the weather, evolves events and rumors, moves NPCs, and records continuity notes into a chronicle.
-- **Active materialization** — mention a shopfront, a key, a passerby, a dead-drop… and the director creates it *now*: new items, new POIs, new characters, new events — gated by your settings and a per-pass growth budget.
-- **Travelable map** — locations are linked; click a connection to travel, and the scene follows you.
+<p align="center">
+  <a href="#install">Install</a>
+  ·
+  <a href="#usage">Usage</a>
+  ·
+  <a href="#settings">Settings</a>
+  ·
+  <a href="#honest-status">Status</a>
+</p>
 
-### 🌫️ Atmosphere you can feel
-- The director writes a **sensory ambient line** (light, weather, smell, sound, texture, mood) every pass.
-- Every reply is grounded in a prose **SCENE BRIEF** — time, weather, who's present, what's stirring — instead of a robotic JSON dump of the world state.
-- Optional ambient theming tints the whole SillyTavern UI by time of day (dawn / day / dusk / night).
+## Why it exists
 
-### 🎭 Characters you can take anywhere
+A lorebook is a dump. A roleplay city is a simulation: time passes, weather shifts, people have jobs, shops exist when you mention them, and the next reply should already know the street you are standing on.
 
-- **Deep materialization** — turn any world NPC into a full character card: description woven from goals, secrets, faction ties, owned items and their home location — reviewed and editable before anything is created.
-- **Bundled world lorebook** — every created card carries a lorebook of its world (always-on premise entry, keyed home district, nearby places, signature items), so it remembers where it came from.
-- **Character forge** — describe a concept (or leave it blank to be surprised) and the director casts brand-new, world-consistent NPCs into the current scene.
-- **Quests panel** — active and finished storylines are visible in the World tab instead of only whispering through the scene brief.
+Immersive Worlds keeps that state in the chat and weaves a prose scene brief into every generation. The director does not own your character's words.
 
-### ⚙️ Built for reasoning models
-- State updates run with **reasoning disabled** on OpenRouter (`effort: none`) so DeepSeek-style thinking models emit JSON instead of burning the token budget on chain-of-thought.
-- Real token budgets (bootstrap 6000 / director 3000, configurable) with automatic headroom on retry.
-- Honest error messages — the toast shows the *actual* failure, not "check your API connection".
-- **Never blocks your replies** — the director runs detached from generation with a 120s hard timeout, so a slow or hung API call can't stall the character.
-- **Token-lean by design** — slim world-state views, capped character lore, and a compact scene brief keep every background pass and every reply cheap.
+## What you get
 
----
+- One-click **AI bootstrap** of a coherent city: locations, NPCs, items, factions, events, premise
+- **Living director** after each turn: clock, weather, rumors, events, chronicle notes
+- **NPC routines** for dawn / day / dusk / night — the city moves even off-screen
+- **Active materialization** — mention a shopfront, a key, a passerby; the director can create it now, gated by a growth budget
+- Travelable location graph; click a connection to move
+- Sensory ambient line plus a compact **SCENE BRIEF** (not a JSON dump) on every reply
+- Deep NPC → SillyTavern character card, with a bundled world lorebook
+- **Character forge** for world-consistent NPCs on demand
+- Quests panel in the World tab
+- Optional time-of-day UI tint (dawn / day / dusk / night)
+- Built for reasoning models: OpenRouter `effort: none` on state updates, real token budgets, director detached from your reply (120s hard timeout)
 
-## Installation
+Built for adults. Any resemblance to real persons or places is coincidental.
 
-Requirements: **SillyTavern ≥ 1.18.0** and any chat-completions API (OpenAI, OpenRouter + DeepSeek/Claude/GPT, etc.).
+## Install
 
-```bash
+Requirements: **SillyTavern ≥ 1.18.0** and any chat-completions API SillyTavern already speaks (OpenAI, OpenRouter, local, …).
+
+```powershell
 cd SillyTavern/public/scripts/extensions/third-party
 git clone https://github.com/ShugokiFable/ImmersiveWorlds.git
 ```
 
-Then **restart SillyTavern** (or hard-refresh the browser with Ctrl+F5) and enable **Immersive Worlds: Living Cities** in the extensions menu.
+Restart SillyTavern (or Ctrl+F5) and enable **Immersive Worlds: Living Cities**.
 
-> Updates: `git -C public/scripts/extensions/third-party/ImmersiveWorlds pull`
-
----
+```powershell
+git -C public/scripts/extensions/third-party/ImmersiveWorlds pull
+```
 
 ## Usage
 
-1. **Generate your world** — open the panel (floating button bottom-right) and hit **Generate world**, or just start chatting; the world bootstraps on the first message.
-2. **Travel** — the World tab shows your current location and its connections; click a connection to move.
-3. **Watch it live** — with the director enabled, every turn advances the simulation. New items, POIs, NPCs, and events appear as the story implies them.
-4. **Inspect** — People / Items / Timeline tabs; add or edit entries manually; export / import world JSON.
-5. **Run the director manually** — hit **Advance world** in the panel anytime.
+1. Open the panel (floating button, bottom-right) and hit **Generate world**, or just start chatting — the world bootstraps on the first message.
+2. **Travel** from the World tab by clicking a connection.
+3. With the director on, every turn advances the simulation. New items, POIs, NPCs, and events appear as the story implies them.
+4. Inspect People / Items / Timeline; add or edit by hand; export / import world JSON.
+5. **Advance world** runs one director pass without sending a player line.
 
 ## Settings
 
 | Setting | Default | What it does |
-|---|---|---|
-| `autoDirector` | on | Run the director automatically after every user message |
+| --- | --- | --- |
+| `autoDirector` | on | Run the director after every user message |
 | `directorEvery` | 1 | Run the director every N messages |
-| `simulationDetail` | high | Growth budget per pass: low (1 item), high (2 items + 1 POI + 1 NPC + 1 event), maximum (3 + 2 + 2 + 1) |
-| `allowNewCharacters` | on | Allow lore-consistent dynamic NPC creation |
-| `allowNewItems` | on | Allow dynamic item creation |
-| `allowNewLocations` | on | Allow dynamic locations / points of interest |
-| `allowOffscreenEvents` | on | Simulate restrained off-screen events |
+| `simulationDetail` | high | Growth budget: low (1 item), high (2 items + 1 POI + 1 NPC + 1 event), maximum (3 + 2 + 2 + 1) |
+| `allowNewCharacters` | on | Lore-consistent dynamic NPCs |
+| `allowNewItems` | on | Dynamic items |
+| `allowNewLocations` | on | Dynamic locations / POIs |
+| `allowOffscreenEvents` | on | Restrained off-screen events |
 | `strictUserAgency` | on | Protect user actions, thoughts, and dialogue |
-| `bootstrapTokens` | 6000 | Token budget for world generation |
-| `directorTokens` | 3000 | Token budget for each director pass |
-| `jsonTemperature` | 0.5 | Temperature used for state-update calls (lower = more reliable JSON) |
-| `disableReasoning` | on | Disable thinking on OpenRouter during state updates (recommended for reasoning models) |
-| `nativeStructuredOutput` | off | Try native `json_schema` structured output first (only for models that support it) |
-| `suspendDirectorOnApiError` | on | Auto-suspend the director if the API rejects a background request |
-| `injectDepth` | 2 | Chat depth for the scene brief injection |
-| `immersiveTheme` / `ambientEffects` / `showFloatingButton` | on | UI layer: modern theme, time-of-day ambient tint, floating panel button |
+| `bootstrapTokens` | 6000 | World-generation token budget |
+| `directorTokens` | 3000 | Per-pass token budget |
+| `jsonTemperature` | 0.5 | State-update temperature |
+| `disableReasoning` | on | Disable OpenRouter thinking during state updates |
+| `nativeStructuredOutput` | off | Try native `json_schema` first |
+| `suspendDirectorOnApiError` | on | Auto-suspend if a background request is rejected |
+| `injectDepth` | 2 | Chat depth for the scene brief |
+| `immersiveTheme` / `ambientEffects` / `showFloatingButton` | on | Theme, time-of-day tint, launcher |
 
-## Changelog
+## Project map
 
-- **1.5.0** — Living schedules: NPCs carry dawn/day/dusk/night routines that the director writes and the clock enforces between passes — the city moves even when you don't mention it; NPC inspector shows each routine.
-- **1.4.0** — Character making & story visibility: deep character cards (goals/secrets/factions/inventory/home woven into the description) with edit-before-create; created cards bundle a world lorebook (WI import + `world` binding); new **Forge** button casts 1–2 fresh world-consistent NPCs from a concept; the director now advances quest threads and NPC routines between passes; Quests section in the World tab; LLM markup sanitized out of card descriptions.
-- **1.3.0** — Token efficiency & reply reliability: director input cut ~86% (slim world state, capped character lore, 6-message transcript); scene brief on every reply ~80% smaller; director no longer blocks the character reply (detached + 120s hard timeout); crash guards for undefined chat entries (fixes `TypeError: Cannot read properties of undefined` in the ST log).
-- **1.2.0** — Active world materialization; `allowNewLocations`; two-way auto-linking of new POIs; Atmosphere card + weather icons in the panel; dialog width fix; growth budgets per `simulationDetail`.
-- **1.1.0** — Reasoning-safe generation for OpenRouter/DeepSeek (thinking disabled, real token budgets, honest errors); prose SCENE BRIEF injection; director ambient lines persisted.
-- **1.0.1** — Initial published build.
+```text
+manifest.json   SillyTavern extension manifest (v1.5.0, loading_order 6)
+index.js        director, bootstrap, interceptor, panel logic
+panel.html      world / people / items / timeline / quests UI
+settings.html   extension settings
+style.css       panel + ambient theme
+```
 
----
+State lives in chat metadata key `immersive_worlds_state_v1`.
 
-*Built for adults. Any resemblance to real persons or places is coincidental.*
+## Honest status
+
+Verified in this tree:
+
+- Manifest version **1.5.0**, minimum client **1.18.0**
+- CI workflow `.github/workflows/ci.yml` (`node --check` on `index.js`, manifest parse)
+- Director routines, character-card forge, quests, and scene-brief injection as described above
+
+Not claimed:
+
+- A GitHub release matching 1.5.0 (tagged GitHub release is still `v1.3.0`)
+- Automated director-quality evals against a live model
+- A standalone app outside SillyTavern
+
+Companion mechanics layer (private): [ImmersiveAdventures](https://github.com/ShugokiFable/ImmersiveAdventures).
+
+## Version notes
+
+- **1.5.0** — NPC dawn/day/dusk/night routines; inspector shows each routine
+- **1.4.0** — Deep character cards + world lorebook; Forge; quests in the World tab
+- **1.3.0** — Token-lean director (~86% smaller input); detached director; crash guards
+- **1.2.0** — Active materialization; atmosphere card; growth budgets
+- **1.1.0** — Reasoning-safe OpenRouter/DeepSeek path; prose SCENE BRIEF
+- **1.0.1** — First published build
+
+## License
+
+[MIT](LICENSE)
