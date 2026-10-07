@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ShugokiFable/ImmersiveWorlds/actions/workflows/ci.yml"><img src="https://github.com/ShugokiFable/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ee6c5?labelColor=0d0f11" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/version-1.5.0-8f9aa6?labelColor=0d0f11" alt="v1.5.0">
   <img src="https://img.shields.io/badge/SillyTavern-%E2%89%A5%201.18.0-8f9aa6?labelColor=0d0f11" alt="SillyTavern 1.18+">
@@ -56,7 +56,7 @@ Requirements: **SillyTavern ≥ 1.18.0** and any chat-completions API SillyTaver
 
 ```powershell
 cd SillyTavern/public/scripts/extensions/third-party
-git clone https://github.com/ShugokiFable/ImmersiveWorlds.git
+git clone https://github.com/SenjuWoo/ImmersiveWorlds.git
 ```
 
 Restart SillyTavern (or Ctrl+F5) and enable **Immersive Worlds: Living Cities**.
@@ -120,7 +120,7 @@ Not claimed:
 - Automated director-quality evals against a live model
 - A standalone app outside SillyTavern
 
-Companion mechanics layer (private): [ImmersiveAdventures](https://github.com/ShugokiFable/ImmersiveAdventures).
+Companion mechanics layer (private): [ImmersiveAdventures](https://github.com/SenjuWoo/ImmersiveAdventures).
 
 ## Version notes
 
