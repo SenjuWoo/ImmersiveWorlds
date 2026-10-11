@@ -1,41 +1,63 @@
-<div id="iw-settings-block" class="inline-drawer wide100p">
-    <div class="inline-drawer-toggle inline-drawer-header">
-        <b><i class="fa-solid fa-city"></i> Immersive Worlds: Living Cities</b>
-        <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-    </div>
-    <div class="inline-drawer-content">
-        <p>Turns each chat into a persistent living world with atmospheric continuity, autonomous residents, interactable objects, and an intelligent state director.</p>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="enabled"><span>Enable living-world prompt engine</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="autoDirector"><span>Run an automatic state director before replies</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="disableReasoning"><span>Disable model reasoning during state updates (strongly recommended for OpenRouter/DeepSeek)</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="nativeStructuredOutput"><span>Use native JSON schema output (experimental; keep disabled for maximum API compatibility)</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="suspendDirectorOnApiError"><span>Automatically suspend the director if the API rejects a background request</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="allowNewCharacters"><span>Allow lore-consistent dynamic NPC creation</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="allowNewItems"><span>Allow dynamic item creation</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="allowNewLocations"><span>Allow dynamic locations and points of interest</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="allowOffscreenEvents"><span>Simulate restrained off-screen events</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="strictUserAgency"><span>Strictly protect user actions, thoughts, and dialogue</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="immersiveTheme"><span>Enable modern immersive interface layer</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="ambientEffects"><span>Time-of-day ambient lighting</span></label>
-        <label class="checkbox_label"><input type="checkbox" data-iw-setting="showFloatingButton"><span>Show location compass</span></label>
-        <div class="flex-container flexFlowColumn">
-            <label for="iw-director-frequency">Director frequency</label>
-            <select id="iw-director-frequency" class="text_pole" data-iw-setting="directorEvery">
-                <option value="1">Every turn</option><option value="2">Every 2 turns</option><option value="3">Every 3 turns</option><option value="5">Every 5 turns</option>
-            </select>
-            <label for="iw-detail">Simulation detail</label>
-            <select id="iw-detail" class="text_pole" data-iw-setting="simulationDetail">
-                <option value="balanced">Balanced</option><option value="high">High</option><option value="maximum">Maximum</option>
-            </select>
-            <label for="iw-bootstrap-tokens">World generation token budget (min 2000, recommended 6000)</label>
-            <input id="iw-bootstrap-tokens" class="text_pole" type="number" min="2000" max="8192" step="500" data-iw-setting="bootstrapTokens">
-            <label for="iw-director-tokens">Director turn token budget (min 1000, recommended 3000)</label>
-            <input id="iw-director-tokens" class="text_pole" type="number" min="1000" max="8192" step="500" data-iw-setting="directorTokens">
-            <label for="iw-json-temp">State generation temperature (lower = more reliable JSON)</label>
-            <input id="iw-json-temp" class="text_pole" type="number" min="0" max="1.5" step="0.1" data-iw-setting="jsonTemperature">
-            <label for="iw-depth">Prompt injection depth</label>
-            <input id="iw-depth" class="text_pole" type="number" min="0" max="20" data-iw-setting="injectDepth">
+<div id="iw-settings-block" class="imx-settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b><i class="fa-solid fa-city"></i> Immersive Worlds</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
-        <button id="iw-open-panel" class="menu_button"><i class="fa-solid fa-compass"></i> Open Living World</button>
+        <div class="inline-drawer-content">
+            <small class="imx-note">A persistent living world per chat: clock, weather, places, people with routines, items and threads. Start one from the wand menu or <code>/iw start</code>; chats without a world cost nothing.</small>
+            <div class="flex-container flexGap5">
+                <div id="iw-open-panel" class="menu_button menu_button_icon"><i class="fa-solid fa-compass"></i><span>Open Living World</span></div>
+            </div>
+
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="enabled"><span>Enabled</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="autoDirector"><span>Update the world after each reply (background director)</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="strictUserAgency"><span>Never write the user's words, thoughts or choices</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="showStatus"><span>Show time and place above the chat input</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="ambientEffects"><span>Tint the screen by time of day</span></label>
+
+            <h4 class="imx-h">Director</h4>
+            <div class="imx-field" id="iw-profile-row">
+                <label for="iw-profile">Connection profile <small>(empty = current connection; a fast cheap model is ideal)</small></label>
+                <select id="iw-profile" class="text_pole"></select>
+            </div>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="noReasoning"><span>Skip model reasoning for world updates (faster, cheaper)</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="suspendDirectorOnApiError"><span>Pause the director if the API rejects its request</span></label>
+            <div class="imx-grid-2">
+                <div class="imx-field">
+                    <label for="iw-every">Run every</label>
+                    <select id="iw-every" class="text_pole" data-iw-setting="directorEvery" data-type="number">
+                        <option value="1">reply</option><option value="2">2 replies</option><option value="3">3 replies</option><option value="5">5 replies</option>
+                    </select>
+                </div>
+                <div class="imx-field">
+                    <label for="iw-detail">Growth</label>
+                    <select id="iw-detail" class="text_pole" data-iw-setting="simulationDetail">
+                        <option value="balanced">Restrained</option><option value="high">Lively</option><option value="maximum">Bustling</option>
+                    </select>
+                </div>
+                <div class="imx-field">
+                    <label for="iw-director-tokens">Update tokens</label>
+                    <input id="iw-director-tokens" class="text_pole" type="number" min="400" max="8192" step="100" data-iw-setting="directorTokens" data-type="number">
+                </div>
+                <div class="imx-field">
+                    <label for="iw-bootstrap-tokens">World-build tokens</label>
+                    <input id="iw-bootstrap-tokens" class="text_pole" type="number" min="1500" max="8192" step="250" data-iw-setting="bootstrapTokens" data-type="number">
+                </div>
+                <div class="imx-field">
+                    <label for="iw-temp">Temperature</label>
+                    <input id="iw-temp" class="text_pole" type="number" min="0" max="1.5" step="0.05" data-iw-setting="temperature" data-type="number">
+                </div>
+                <div class="imx-field">
+                    <label for="iw-depth">Prompt depth</label>
+                    <input id="iw-depth" class="text_pole" type="number" min="0" max="20" data-iw-setting="injectDepth" data-type="number">
+                </div>
+            </div>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="allowNewCharacters"><span>New people may appear</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="allowNewItems"><span>New items may appear</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="allowNewLocations"><span>New places may appear</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="allowOffscreenEvents"><span>Off-screen events</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="debug"><span>Debug log (browser console)</span></label>
+        </div>
     </div>
 </div>

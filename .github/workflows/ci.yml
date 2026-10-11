@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     name: Extension validation
@@ -20,7 +24,8 @@ jobs:
         with:
           node-version: '22'
       - name: JavaScript syntax check
-        run: node --check index.js
+        run: for f in *.js tests/*.js; do node --check "$f" || exit 1; done
       - name: Validate extension manifest
-        run: |
-          node -e "const m=JSON.parse(require('fs').readFileSync('manifest.json','utf8')); if(!m.display_name||!m.loading_order===undefined){} console.log('manifest.json valid:', m.display_name)"
+        run: node -e "const m = JSON.parse(require('fs').readFileSync('manifest.json','utf8')); for (const k of ['display_name','js','css','version','author','minimum_client_version']) if (!m[k]) { console.error('manifest.json missing', k); process.exit(1); } console.log('manifest.json valid:', m.display_name, m.version)"
+      - name: Self-tests
+        run: node tests/selftest.js

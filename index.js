@@ -1,1468 +1,822 @@
+// Immersive Worlds: Living Cities — SillyTavern host. Pure logic lives in engine.js.
+import { extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
+import { createWorldInfoEntry } from '../../../world-info.js';
 import {
-    eventSource,
-    event_types,
-    extension_prompt_types,
-    extension_prompt_roles,
-    generateRaw,
-    getRequestHeaders,
-    saveSettingsDebounced,
-    setExtensionPrompt,
-} from '../../../../script.js';
-import {
-    extension_settings,
-    renderExtensionTemplateAsync,
-} from '../../../extensions.js';
-import { oai_settings } from '../../../openai.js';
+    STATE_KEY, TURN_KEY, DIRECTOR_SYSTEM, normalizeState, baseWorld, currentLocation, presentNpcs, sceneBrief, buildInjection,
+    directorPrompt, bootstrapPrompt, applyPatch, travel, transcriptOf, cleanText, slug, uniqueId, nowIso, isOpen, timeSlot,
+    atmosphereLine, weatherIcon, weatherClass,
+} from './engine.js';
+import { backgroundGenerate, parseJson, errorText, isRejection } from './llm.js';
+import { escapeHtml, openPanel, paintPanel, isPanelOpen, statusSlot, addWandItem, empty } from './kit.js';
 
+export const VERSION = '2.0.0';
 const MODULE_ID = 'immersive_worlds';
 const PROMPT_ID = 'IMMERSIVE_WORLDS_STATE';
-const STATE_KEY = 'immersive_worlds_state_v1';
-const PANEL_ID = 'iw-world-panel';
-const SETTINGS_ID = 'iw-settings-block';
-const MAX_CHRONICLE = 40;
+const PANEL_ID = 'iw-panel';
+const TITLE = 'Immersive Worlds';
+const FOLDER = decodeURIComponent(new URL('.', import.meta.url).pathname.split('/').filter(Boolean).pop());
+const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
-const defaultSettings = Object.freeze({
+const DEFAULTS = Object.freeze({
     enabled: true,
     autoDirector: true,
     directorEvery: 1,
-    bootstrapTokens: 6000,
-    directorTokens: 3000,
-    jsonTemperature: 0.5,
-    disableReasoning: true,
-    injectDepth: 2,
-    immersiveTheme: true,
-    ambientEffects: true,
-    showFloatingButton: true,
-    maxNpcs: 48,
-    maxItems: 80,
-    maxLocations: 36,
+    profileId: '',
+    noReasoning: true,
+    directorTokens: 1200,
+    bootstrapTokens: 3000,
+    temperature: 0.4,
+    injectDepth: 1,
+    strictUserAgency: true,
     simulationDetail: 'high',
     allowNewCharacters: true,
     allowNewItems: true,
     allowNewLocations: true,
     allowOffscreenEvents: true,
-    strictUserAgency: true,
-    nativeStructuredOutput: false,
+    maxNpcs: 48,
+    maxItems: 80,
+    maxLocations: 36,
+    showStatus: true,
+    ambientEffects: true,
     suspendDirectorOnApiError: true,
+    debug: false,
 });
+// v1 keys -> v2 keys; v1 keys without a successor are dropped.
+const RENAMED = { disableReasoning: 'noReasoning', jsonTemperature: 'temperature' };
+
+const TABS = [
+    { id: 'world', icon: 'fa-map', label: 'World' },
+    { id: 'people', icon: 'fa-people-group', label: 'People' },
+    { id: 'items', icon: 'fa-box-open', label: 'Items' },
+    { id: 'history', icon: 'fa-timeline', label: 'History' },
+    { id: 'manage', icon: 'fa-sliders', label: 'Manage' },
+];
 
 let activeTab = 'world';
-let directorBusy = false;
-let initialized = false;
-let saveTimer = null;
-let consecutiveDirectorFailures = 0;
+let busy = false;
+let busyLabel = '';
+let queued = null;
+let epoch = 0;
 
-function getContext() {
-    return globalThis.SillyTavern?.getContext?.();
-}
+const ctx = () => SillyTavern.getContext();
+const log = (...args) => settings().debug && console.debug(`[${TITLE}]`, ...args);
 
 function settings() {
-    if (!extension_settings[MODULE_ID]) {
-        extension_settings[MODULE_ID] = structuredClone(defaultSettings);
-    }
-    for (const [key, value] of Object.entries(defaultSettings)) {
-        if (extension_settings[MODULE_ID][key] === undefined) {
-            extension_settings[MODULE_ID][key] = value;
-        }
-    }
-    return extension_settings[MODULE_ID];
+    const all = ctx().extensionSettings;
+    const s = all[MODULE_ID] ??= {};
+    for (const [from, to] of Object.entries(RENAMED)) if (from in s) { s[to] ??= s[from]; delete s[from]; }
+    for (const [k, v] of Object.entries(DEFAULTS)) if (s[k] === undefined) s[k] = v;
+    for (const k of Object.keys(s)) if (!(k in DEFAULTS)) delete s[k];
+    return s;
 }
 
-function nowIso() {
-    return new Date().toISOString();
-}
-
-function slug(value, prefix = 'id') {
-    const cleaned = String(value || '')
-        .normalize('NFKD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 42);
-    return cleaned || `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function uniqueId(collection, preferred, prefix) {
-    const used = new Set(collection.map(x => x.id));
-    let base = slug(preferred, prefix);
-    let id = base;
-    let n = 2;
-    while (used.has(id)) id = `${base}-${n++}`;
-    return id;
-}
-
-function cleanText(value, max = 800) {
-    const div = document.createElement('div');
-    div.innerHTML = String(value ?? '');
-    return (div.textContent || div.innerText || '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, max);
-}
-
-function currentCharacterSummary(max = 5000) {
-    const ctx = getContext();
-    if (!ctx) return '';
-    if (ctx.groupId) {
-        const group = ctx.groups?.find(g => String(g.id) === String(ctx.groupId));
-        const members = (group?.members || [])
-            .map(avatar => ctx.characters?.find(c => c.avatar === avatar))
-            .filter(Boolean)
-            .map(c => `${c.name}: ${cleanText(c.description || c.personality, 300)}`);
-        return `Active ensemble: ${members.join('\n')}`.slice(0, max);
-    }
-    const c = ctx.characters?.[ctx.characterId];
-    if (!c) return '';
-    const bookEntries = c?.data?.character_book?.entries || [];
-    const lore = bookEntries.slice(0, 10).map(e => cleanText(e.content, 200)).filter(Boolean).join('\n');
-    return [
-        `Character: ${c.name || ''}`,
-        `Description: ${cleanText(c.description, 900)}`,
-        `Personality: ${cleanText(c.personality, 600)}`,
-        `Scenario: ${cleanText(c.scenario, 800)}`,
-        lore ? `Embedded lore:\n${lore}` : '',
-    ].filter(Boolean).join('\n').slice(0, max);
-}
-
-function baseWorld() {
-    const ctx = getContext();
-    const c = ctx?.characters?.[ctx.characterId];
-    const worldName = c?.name ? `${c.name}'s World` : 'Living World';
-    const locationName = cleanText(c?.scenario, 80) || 'The Current Scene';
-    const locationId = slug(locationName, 'location');
-    const npcs = [];
-    if (c?.name) {
-        npcs.push({
-            id: uniqueId(npcs, c.name, 'npc'),
-            name: c.name,
-            role: 'Primary character',
-            appearance: cleanText(c.description, 500),
-            personality: cleanText(c.personality, 500),
-            goals: [],
-            relationship: 'Established by the current chat',
-            locationId,
-            status: 'present',
-            secrets: [],
-            inventory: [],
-            firstSeen: nowIso(),
-            lastSeen: nowIso(),
-            materializedAvatar: c.avatar || '',
-        });
-    }
-    return normalizeState({
-        version: 1,
-        worldName,
-        premise: cleanText(c?.scenario || c?.description, 1200),
-        genre: 'adaptive roleplay',
-        tone: 'immersive and grounded',
-        rules: [],
-        clock: { day: 1, time: '09:00', weather: 'clear', season: 'unspecified' },
-        currentLocationId: locationId,
-        locations: [{
-            id: locationId,
-            name: locationName,
-            type: 'scene',
-            description: cleanText(c?.scenario, 800) || 'The place where the current scene begins.',
-            connections: [],
-            discovered: true,
-            danger: 'unknown',
-        }],
-        npcs,
-        items: [],
-        factions: [],
-        events: [],
-        quests: [],
-        player: { currency: 0, reputation: {}, inventoryIds: [] },
-        chronicle: [{ at: nowIso(), text: 'Living-world simulation initialized.' }],
-        meta: { createdAt: nowIso(), updatedAt: nowIso(), tick: 0, lastProcessedSignature: '' },
-    });
-}
-
-function normalizeArray(value) {
-    return Array.isArray(value) ? value.filter(Boolean) : [];
-}
-
-function normalizeState(input) {
-    const state = input && typeof input === 'object' ? input : {};
-    state.version = 1;
-    state.worldName = String(state.worldName || 'Living World').slice(0, 120);
-    state.premise = String(state.premise || '').slice(0, 4000);
-    state.genre = String(state.genre || 'adaptive roleplay').slice(0, 100);
-    state.tone = String(state.tone || 'immersive').slice(0, 200);
-    state.rules = normalizeArray(state.rules).map(String).slice(0, 20);
-    state.clock = { day: 1, time: '09:00', weather: 'clear', season: 'unspecified', ...(state.clock || {}) };
-    state.locations = normalizeArray(state.locations).map((x, i) => ({
-        id: slug(x.id || x.name || `location-${i + 1}`, 'location'),
-        name: String(x.name || `Location ${i + 1}`).slice(0, 120),
-        type: String(x.type || 'place').slice(0, 80),
-        description: String(x.description || '').slice(0, 1600),
-        connections: normalizeArray(x.connections).map(v => slug(v, 'location')).slice(0, 20),
-        discovered: x.discovered !== false,
-        danger: String(x.danger || 'unknown').slice(0, 80),
-    }));
-    if (!state.locations.length) state.locations.push(baseWorld().locations[0]);
-    state.currentLocationId = slug(state.currentLocationId || state.locations[0].id, 'location');
-    if (!state.locations.some(x => x.id === state.currentLocationId)) state.currentLocationId = state.locations[0].id;
-    state.npcs = normalizeArray(state.npcs).map((x, i) => ({
-        id: slug(x.id || x.name || `npc-${i + 1}`, 'npc'),
-        name: String(x.name || `Unknown ${i + 1}`).slice(0, 100),
-        role: String(x.role || 'resident').slice(0, 160),
-        appearance: String(x.appearance || '').slice(0, 900),
-        personality: String(x.personality || '').slice(0, 900),
-        goals: normalizeArray(x.goals).map(String).slice(0, 8),
-        relationship: String(x.relationship || 'unknown').slice(0, 500),
-        locationId: slug(x.locationId || state.currentLocationId, 'location'),
-        status: String(x.status || 'active').slice(0, 100),
-        secrets: normalizeArray(x.secrets).map(String).slice(0, 6),
-        inventory: normalizeArray(x.inventory).map(String).slice(0, 20),
-        firstSeen: x.firstSeen || nowIso(),
-        lastSeen: x.lastSeen || nowIso(),
-        materializedAvatar: String(x.materializedAvatar || ''),
-    }));
-    state.items = normalizeArray(state.items).map((x, i) => ({
-        id: slug(x.id || x.name || `item-${i + 1}`, 'item'),
-        name: String(x.name || `Item ${i + 1}`).slice(0, 120),
-        type: String(x.type || 'object').slice(0, 100),
-        description: String(x.description || '').slice(0, 1000),
-        rarity: String(x.rarity || 'ordinary').slice(0, 80),
-        quantity: Math.max(1, Number(x.quantity) || 1),
-        ownerId: x.ownerId ? slug(x.ownerId, 'npc') : '',
-        locationId: x.locationId ? slug(x.locationId, 'location') : state.currentLocationId,
-        properties: normalizeArray(x.properties).map(String).slice(0, 12),
-    }));
-    state.factions = normalizeArray(state.factions).slice(0, 24);
-    state.events = normalizeArray(state.events).slice(0, 40);
-    state.quests = normalizeArray(state.quests).slice(0, 30);
-    state.player = { currency: 0, reputation: {}, inventoryIds: [], ...(state.player || {}) };
-    state.player.inventoryIds = normalizeArray(state.player.inventoryIds).map(v => slug(v, 'item'));
-    state.chronicle = normalizeArray(state.chronicle).map(x => typeof x === 'string' ? { at: nowIso(), text: x } : x).slice(-MAX_CHRONICLE);
-    state.meta = { createdAt: nowIso(), updatedAt: nowIso(), tick: 0, lastProcessedSignature: '', ...(state.meta || {}) };
-    state.scene = { ambient: '', ...(state.scene && typeof state.scene === 'object' ? state.scene : {}) };
-    state.scene.ambient = String(state.scene.ambient || '').slice(0, 500);
-    return state;
-}
-
-function getState(create = true) {
-    const ctx = getContext();
-    if (!ctx?.chatMetadata) return create ? baseWorld() : null;
-    if (!ctx.chatMetadata[STATE_KEY] && create) ctx.chatMetadata[STATE_KEY] = baseWorld();
-    if (ctx.chatMetadata[STATE_KEY]) ctx.chatMetadata[STATE_KEY] = normalizeState(ctx.chatMetadata[STATE_KEY]);
-    return ctx.chatMetadata[STATE_KEY] || null;
-}
-
-function scheduleSave() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(async () => {
-        const ctx = getContext();
-        const state = getState(false);
-        if (!ctx || !state) return;
-        state.meta.updatedAt = nowIso();
-        try {
-            await ctx.saveMetadata();
-        } catch (error) {
-            console.error('[Immersive Worlds] Failed to save world state', error);
-        }
-    }, 300);
-}
-
-function currentLocation(state) {
-    return state.locations.find(x => x.id === state.currentLocationId) || state.locations[0];
-}
-
-function slimLocation(l) {
-    return { id: l.id, name: l.name, type: l.type, connections: l.connections, description: cleanText(l.description, 220) };
-}
-function slimNpc(n) {
-    return { id: n.id, name: n.name, role: n.role, status: n.status, locationId: n.locationId, personality: cleanText(n.personality, 120) };
-}
-function slimItem(i) {
-    return { id: i.id, name: i.name, type: i.type, quantity: i.quantity, ownerId: i.ownerId, locationId: i.locationId, description: cleanText(i.description, 120) };
-}
-function conciseState(state) {
-    const loc = currentLocation(state);
-    const present = state.npcs.filter(n => n.locationId === state.currentLocationId && n.status !== 'dead').slice(0, 6).map(slimNpc);
-    const localItems = state.items.filter(i => i.locationId === state.currentLocationId || present.some(n => n.id === i.ownerId)).slice(0, 8).map(slimItem);
-    const activeEvents = state.events.filter(e => !e.resolved).slice(-4).map(e => ({ id: e.id || '', name: e.name || e.title || e.summary || 'event', status: e.status || '', description: cleanText(e.description || e.summary || '', 160) }));
-    const activeQuests = state.quests.filter(q => !['resolved', 'failed', 'complete'].includes(String(q.status).toLowerCase())).slice(-4).map(q => ({ id: q.id || '', name: q.name || 'quest', status: q.status || '', description: cleanText(q.description || '', 160) }));
+function policy() {
+    const s = settings();
     return {
-        world: state.worldName,
-        premise: cleanText(state.premise, 600),
-        genre: state.genre,
-        tone: state.tone,
-        rules: state.rules.slice(0, 8),
-        clock: state.clock,
-        location: loc ? slimLocation(loc) : null,
-        nearbyLocations: state.locations.filter(x => loc?.connections?.includes(x.id)).slice(0, 5).map(slimLocation),
-        presentCharacters: present,
-        localItems,
-        activeEvents,
-        activeQuests,
-        player: { currency: state.player.currency, reputation: state.player.reputation },
-        recentChronicle: state.chronicle.slice(-4).map(c => cleanText(c.text, 160)),
+        allowNewCharacters: s.allowNewCharacters, allowNewItems: s.allowNewItems, allowNewLocations: s.allowNewLocations,
+        offscreen: s.allowOffscreenEvents, detail: s.simulationDetail, maxNpcs: s.maxNpcs, maxItems: s.maxItems, maxLocations: s.maxLocations,
     };
 }
 
-const WEATHER_ATMOSPHERE = {
-    clear: 'The sky is clear and the light is sharp.',
-    sunny: 'The sky is clear and the light is sharp.',
-    cloudy: 'Cloud cover softens the light and washes out colors.',
-    overcast: 'Low cloud presses down, muffling sound and color.',
-    rain: 'Rain patters steadily and the air smells of wet stone.',
-    raining: 'Rain patters steadily and the air smells of wet stone.',
-    storm: 'Wind-driven rain and distant thunder make the world feel small.',
-    thunderstorm: 'Wind-driven rain and distant thunder make the world feel small.',
-    snow: 'Snow falls in silence, hushing every sound under a white blanket.',
-    fog: 'Fog swallows the distance and turns familiar shapes into guesses.',
-    mist: 'Thin mist drifts through the streets, blurring edges and voices.',
-    haze: 'Heat haze shimmers over the ground and the air tastes of dust.',
-    wind: 'A restless wind pushes loose things about and snaps at clothing.',
-    humid: 'The air is heavy and damp, and everything sticks to the skin.',
-    hot: 'The heat presses down, and even the shade feels tired.',
-    cold: 'The cold bites; breath fogs and metal stings to the touch.',
-};
+// ---------------------------------------------------------------------------
+// State: one world per chat, in chat metadata. Normalized once on chat load.
+// ---------------------------------------------------------------------------
 
-const TIME_ATMOSPHERE = {
-    night: 'Lamplight pools in the dark, and the world narrows to pools of warmth.',
-    dawn: 'The first grey light creeps over the horizon, washing the world in blue.',
-    day: 'The day is at full stretch, light and shadow in constant motion.',
-    dusk: 'Long shadows stretch and the light turns amber before it fails.',
-};
+const getState = () => ctx().chatMetadata?.[STATE_KEY] || null;
 
-const WEATHER_ICONS = {
-    clear: 'fa-sun', sunny: 'fa-sun', cloudy: 'fa-cloud', overcast: 'fa-cloud',
-    rain: 'fa-cloud-rain', raining: 'fa-cloud-rain', storm: 'fa-cloud-bolt',
-    thunderstorm: 'fa-cloud-bolt', snow: 'fa-snowflake', fog: 'fa-smog',
-    mist: 'fa-smog', haze: 'fa-smog', wind: 'fa-wind', humid: 'fa-droplet',
-    hot: 'fa-temperature-high', cold: 'fa-temperature-low',
-};
-
-function timeSlotOf(state) {
-    const hour = Number(String(state.clock?.time || '12:00').split(':')[0]) || 12;
-    return hour < 6 ? 'night' : hour < 10 ? 'dawn' : hour < 18 ? 'day' : hour < 21 ? 'dusk' : 'night';
+function setState(state) {
+    ctx().chatMetadata[STATE_KEY] = state;
+    state.meta.updatedAt = nowIso();
+    ctx().saveMetadataDebounced();
+    refresh();
 }
 
-function atmosphereLine(state) {
-    const weatherKey = String(state.clock?.weather || 'clear').toLowerCase().replace(/[^a-z]+/g, '');
-    const ambient = String(state.scene?.ambient || '').trim();
-    if (ambient) return ambient;
-    const atmos = [WEATHER_ATMOSPHERE[weatherKey] || '', TIME_ATMOSPHERE[timeSlotOf(state)] || ''].filter(Boolean).join(' ');
-    return atmos || cleanText(currentLocation(state)?.description || 'The scene waits, still and watchful.', 500);
+function cardInfo() {
+    const c = ctx();
+    const ch = c.groupId ? null : c.characters?.[c.characterId];
+    return ch ? { name: ch.name, scenario: ch.scenario, description: ch.description, personality: ch.personality, avatar: ch.avatar } : {};
 }
 
-function buildSceneBrief(state) {
-    const loc = currentLocation(state);
+function hasChat() {
+    const c = ctx();
+    return Boolean(c.chatId || c.groupId || c.characterId !== undefined);
+}
+
+function startWorld() {
+    if (!hasChat()) {
+        toastr.warning('Open a chat first.', TITLE);
+        return null;
+    }
+    if (getState()) return getState();
+    const state = baseWorld(cardInfo());
+    state.meta.lastIndex = (ctx().chat?.length ?? 0) - 1;
+    log('world started', state.worldName);
+    setState(state);
+    return state;
+}
+
+function lore() {
+    const c = ctx();
+    const f = (() => { try { return c.getCharacterCardFields?.() ?? {}; } catch { return {}; } })();
     const lines = [];
-    lines.push(`Day ${state.clock?.day || 1}, ${state.clock?.time || '09:00'} — ${String(state.clock?.weather || 'clear')}. ${loc?.name || 'The current scene'} (${loc?.type || 'place'}).`);
-    lines.push(atmosphereLine(state));
-    const present = state.npcs.filter(n => n.locationId === state.currentLocationId && n.status !== 'dead').slice(0, 5);
-    if (present.length) {
-        lines.push('Present: ' + present.map(n => `${n.name} (${n.role})${n.personality ? ` — ${cleanText(n.personality, 80)}` : ''}`).join('; '));
+    if (c.groupId) {
+        const group = c.groups?.find(g => String(g.id) === String(c.groupId));
+        const members = (group?.members || []).map(a => c.characters?.find(ch => ch.avatar === a)).filter(Boolean);
+        lines.push(`Ensemble: ${members.map(m => `${m.name}: ${cleanText(m.description || m.personality, 300)}`).join('\n')}`);
+    } else {
+        const ch = c.characters?.[c.characterId];
+        if (ch?.name) lines.push(`Character: ${ch.name}`);
     }
-    const connected = (loc?.connections || []).map(id => state.locations.find(x => x.id === id)?.name).filter(Boolean);
-    if (connected.length) {
-        lines.push('Nearby: ' + connected.slice(0, 6).join(', ') + '.');
-    }
-    const events = state.events.filter(e => !e.resolved && String(e.status || '').toLowerCase() !== 'resolved').slice(-3);
-    if (events.length) {
-        lines.push('Stirring: ' + events.map(e => cleanText(e.name || e.title || e.summary || e.description, 120)).join('; '));
-    }
-    const items = state.items.filter(i => i.locationId === state.currentLocationId && !i.ownerId).slice(0, 5);
-    if (items.length) {
-        lines.push('On hand: ' + items.map(i => i.name).join(', ') + '.');
-    }
-    const chronicle = state.chronicle.slice(-2);
-    if (chronicle.length) {
-        lines.push('Recently: ' + chronicle.map(c => cleanText(c.text, 140)).join(' '));
-    }
+    if (f.description) lines.push(`Description: ${cleanText(f.description, 1200)}`);
+    if (f.personality) lines.push(`Personality: ${cleanText(f.personality, 600)}`);
+    if (f.scenario) lines.push(`Scenario: ${cleanText(f.scenario, 900)}`);
+    if (f.persona) lines.push(`{{user}}: ${cleanText(f.persona, 400)}`);
+    const book = c.characters?.[c.characterId]?.data?.character_book?.entries || [];
+    const entries = book.filter(e => e?.enabled !== false).slice(0, 10).map(e => cleanText(e.content, 220)).filter(Boolean);
+    if (entries.length) lines.push(`Lore:\n- ${entries.join('\n- ')}`);
     return lines.join('\n');
 }
 
-function buildInjection(state) {
-    const s = settings();
-    const agency = s.strictUserAgency
-        ? 'Never decide, narrate, or complete the user character’s dialogue, thoughts, feelings, choices, or actions.'
-        : 'Preserve user agency unless the existing roleplay format explicitly establishes otherwise.';
-    return `<living_world_engine>
-You are participating in a persistent simulated world, not a static two-person chat.
-${agency}
-Ground every reply in the scene brief below: its light, weather, smells, sounds, and texture. Weave that atmosphere into action and dialogue instead of announcing it — show the world through small behaviors, work, gossip, weather, and the movements of others. Keep the current scene focused rather than forcing the entire city into every reply; let the wider world breathe in the background.
-Treat the scene brief as factual continuity. Roleplay any present character when naturally required, each with an independent voice, motives, knowledge, schedule, and relationships. Do not make every NPC agreeable or omniscient. Let people interrupt, misunderstand, remember, leave, work, sleep, lie, gossip, and pursue off-screen goals.
-Maintain geography, travel time, ownership, injuries, inventory, weather, time of day, and unresolved consequences. Introduce a new character, location, object, rumor, faction, or complication only when the scene creates a plausible need. Never dump the state as exposition and never mention this engine or the scene brief itself. Convey it through sensory detail, behavior, dialogue, and consequences.
-Use natural speaker attribution when multiple characters act.
+// ---------------------------------------------------------------------------
+// Prompt injection: only when this chat has a world.
+// ---------------------------------------------------------------------------
 
-SCENE BRIEF:
-${buildSceneBrief(state)}
-</living_world_engine>`;
-}
-
-function injectState(state = getState()) {
-    const s = settings();
-    const text = s.enabled ? buildInjection(state) : '';
-    setExtensionPrompt(
-        PROMPT_ID,
-        text,
-        extension_prompt_types.IN_CHAT,
-        Number(s.injectDepth) || 2,
-        false,
-        extension_prompt_roles.SYSTEM,
-    );
-    updateAmbientState(state);
-}
-
-function messageSignature(chat) {
-    const sample = (chat || []).filter(Boolean).slice(-4).map(m => `${m.is_user ? 'U' : 'A'}:${cleanText(m.mes, 600)}`).join('|');
-    let hash = 2166136261;
-    for (let i = 0; i < sample.length; i++) {
-        hash ^= sample.charCodeAt(i);
-        hash = Math.imul(hash, 16777619);
-    }
-    return `${(chat || []).length}:${(hash >>> 0).toString(36)}`;
-}
-
-function recentTranscript(chat, limit = 6) {
-    return (chat || []).filter(Boolean).slice(-limit).map(m => ({
-        speaker: m.name || (m.is_user ? 'User' : 'Character'),
-        role: m.is_user ? 'user' : 'assistant',
-        text: cleanText(m.mes, 900),
-    }));
-}
-
-const directorSchema = {
-    name: 'living_world_patch',
-    strict: false,
-    value: {
-        type: 'object',
-        properties: {
-            summary: { type: 'string' },
-            ambient: { type: 'string' },
-            time_minutes: { type: 'integer' },
-            weather: { type: 'string' },
-            current_location_id: { type: 'string' },
-            new_locations: { type: 'array', items: { type: 'object' } },
-            location_updates: { type: 'array', items: { type: 'object' } },
-            new_npcs: { type: 'array', items: { type: 'object' } },
-            npc_updates: { type: 'array', items: { type: 'object' } },
-            new_items: { type: 'array', items: { type: 'object' } },
-            item_updates: { type: 'array', items: { type: 'object' } },
-            new_factions: { type: 'array', items: { type: 'object' } },
-            faction_updates: { type: 'array', items: { type: 'object' } },
-            new_events: { type: 'array', items: { type: 'object' } },
-            event_updates: { type: 'array', items: { type: 'object' } },
-            new_quests: { type: 'array', items: { type: 'object' } },
-            quest_updates: { type: 'array', items: { type: 'object' } },
-            chronicle: { type: 'array', items: { type: 'string' } },
-        },
-        required: ['summary', 'time_minutes', 'new_locations', 'location_updates', 'new_npcs', 'npc_updates', 'new_items', 'item_updates', 'new_factions', 'faction_updates', 'new_events', 'event_updates', 'new_quests', 'quest_updates', 'chronicle'],
-    },
-};
-
-const bootstrapSchema = {
-    name: 'living_world',
-    strict: false,
-    value: {
-        type: 'object',
-        properties: {
-            worldName: { type: 'string' },
-            premise: { type: 'string' },
-            genre: { type: 'string' },
-            tone: { type: 'string' },
-            rules: { type: 'array', items: { type: 'string' } },
-            clock: { type: 'object' },
-            currentLocationId: { type: 'string' },
-            locations: { type: 'array', items: { type: 'object' } },
-            npcs: { type: 'array', items: { type: 'object' } },
-            items: { type: 'array', items: { type: 'object' } },
-            factions: { type: 'array', items: { type: 'object' } },
-            events: { type: 'array', items: { type: 'object' } },
-            quests: { type: 'array', items: { type: 'object' } },
-            player: { type: 'object' },
-        },
-        required: ['worldName', 'premise', 'genre', 'tone', 'clock', 'currentLocationId', 'locations', 'npcs', 'items'],
-    },
-};
-
-function parseJson(value) {
-    if (typeof value === 'object' && value) return value;
-    let text = String(value ?? '').replace(/^\uFEFF/, '').trim();
-    if (!text) {
-        throw new Error('The model returned an empty response. If it is a reasoning model, raise the world/director token budgets or disable reasoning for world calls.');
-    }
-    text = text.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
-    try { return JSON.parse(text); } catch { /* continue */ }
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-        const candidate = text.slice(start, end + 1);
-        try { return JSON.parse(candidate); } catch (error) {
-            const truncated = /[}\]]\s*$/.test(candidate) && text.slice(end + 1).trim().length > 0 ? ' (output continues after the closing brace — likely truncated)' : '';
-            throw new Error(`The director returned invalid JSON${truncated || (text.length >= 3800 ? ' — the output looks truncated' : '')}. ${String(error.message).slice(0, 140)}`);
-        }
-    }
-    throw new Error('The director did not return valid JSON.');
-}
-
-function clampBudget(value, min, max) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return min;
-    return Math.max(min, Math.min(max, Math.round(n)));
-}
-
-function schemaContract(schema) {
-    return JSON.stringify(schema?.value || schema || {}, null, 2);
-}
-
-function errorText(error) {
-    if (!error) return 'Unknown API error';
-    if (typeof error === 'string') return error;
-    if (error instanceof Error) return error.message || error.name;
-    try { return JSON.stringify(error); } catch { return String(error); }
-}
-
-function isRequestRejection(error) {
-    return /(?:status\s*)?400|bad request|unsupported|response[_ -]?format|json[_ -]?schema|tool[_ -]?choice/i.test(errorText(error));
-}
-
-async function withJsonBias(action) {
-    // Temporarily steer the active Chat Completion settings toward reliable JSON:
-    // low temperature, and — when the user opts in — reasoning disabled. Reasoning
-    // models (DeepSeek R1/V3/V4, etc.) can burn the entire token budget on
-    // chain-of-thought and return content:null, which surfaces as "No message
-    // generated" in generateRaw. SillyTavern maps reasoning_effort 'min' + hidden
-    // thoughts to OpenRouter effort 'none', which switches thinking off cleanly.
-    const oai = oai_settings;
-    if (!oai) return action();
-    const saved = { temp: oai.temp_openai, effort: oai.reasoning_effort, thoughts: oai.show_thoughts };
-    try {
-        const t = Number(settings().jsonTemperature);
-        oai.temp_openai = (Number.isFinite(t) && t >= 0 && t <= 2) ? t : 0.5;
-        if (settings().disableReasoning && String(oai.chat_completion_source) === 'openrouter') {
-            oai.reasoning_effort = 'min';
-            oai.show_thoughts = false;
-        }
-        return await action();
-    } finally {
-        oai.temp_openai = saved.temp;
-        oai.reasoning_effort = saved.effort;
-        oai.show_thoughts = saved.thoughts;
-    }
-}
-
-async function providerSafeGenerate({ prompt, schema, responseLength }) {
-    const contract = schemaContract(schema);
-    const fullPrompt = `${prompt}\n\nOUTPUT CONTRACT:\nReturn exactly one valid JSON object matching this JSON Schema. Do not use markdown fences, prose, XML, comments, or trailing text.\n${contract}`;
-
-    // No provider-specific response_format / json_schema field is sent here.
-    // This works with OpenRouter, custom OpenAI-compatible endpoints, text completion,
-    // KoboldCpp, llama.cpp, Claude proxies, Gemini proxies, and models that reject
-    // native structured-output parameters with HTTP 400.
-    const result = await withJsonBias(() => generateRaw({
-        prompt: fullPrompt,
-        systemPrompt: 'You are a deterministic roleplay world-state engine. Output JSON only.',
-        responseLength,
-        trimNames: false,
-    }));
-    return parseJson(result);
-}
-
-function withTimeout(promise, ms, label = 'request') {
-    let timer;
-    const timeout = new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
-    });
-    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-async function structuredGenerate(args) {
-    // Hard cap on every background call so a hung upstream can never stall the
-    // reply pipeline (SillyTavern awaits generation interceptors).
-    return withTimeout(doStructuredGenerate(args), 120000, 'living-world API call');
-}
-
-async function doStructuredGenerate({ prompt, schema, responseLength }) {
-    const s = settings();
-
-    // Native structured output is optional because many otherwise functional models
-    // reject response_format/json_schema and cause SillyTavern to show “Bad Request”.
-    if (s.nativeStructuredOutput) {
-        try {
-            const result = await withJsonBias(() => generateRaw({
-                prompt,
-                systemPrompt: 'Return only the requested JSON object. No markdown and no commentary.',
-                responseLength,
-                jsonSchema: schema,
-                trimNames: false,
-            }));
-            return parseJson(result);
-        } catch (error) {
-            console.warn('[Immersive Worlds] Native structured output rejected; retrying in provider-safe mode.', error);
-        }
-    }
-
-    try {
-        return await providerSafeGenerate({ prompt, schema, responseLength });
-    } catch (firstError) {
-        console.warn('[Immersive Worlds] Provider-safe JSON generation retry', firstError);
-        // Some minimal/custom endpoints reject separate system messages. The final retry
-        // folds every instruction into one user prompt, sends no special API fields,
-        // and grants extra headroom in case the first pass was truncated mid-JSON.
-        const result = await withJsonBias(() => generateRaw({
-            prompt: `You are a deterministic roleplay world-state engine.\n${prompt}\n\nReturn exactly one valid JSON object matching this schema and nothing else:\n${schemaContract(schema)}`,
-            systemPrompt: '',
-            responseLength: Math.min(8192, Math.ceil(responseLength * 1.5)),
-            trimNames: false,
-        }));
-        return parseJson(result);
-    }
-}
-
-function advanceClock(clock, minutes, state = null) {
-    const amount = Math.max(0, Math.min(10080, Number(minutes) || 0));
-    const [h, m] = String(clock.time || '09:00').split(':').map(Number);
-    const total = (Number(clock.day || 1) - 1) * 1440 + (h || 0) * 60 + (m || 0) + amount;
-    clock.day = Math.floor(total / 1440) + 1;
-    const dayMinutes = total % 1440;
-    clock.time = `${String(Math.floor(dayMinutes / 60)).padStart(2, '0')}:${String(dayMinutes % 60).padStart(2, '0')}`;
-    if (state) enforceRoutines(state);
-}
-
-// ponytail: slot buckets only (dawn/day/dusk/night); per-hour granularity if the city ever feels robotic.
-function enforceRoutines(state) {
-    if (!state?.locations?.length || !state?.npcs?.length) return;
-    const valid = new Set(state.locations.map(l => l.id));
-    const slot = timeSlotOf(state);
-    let moved = false;
-    for (const n of state.npcs) {
-        const r = n.routine && typeof n.routine === 'object' ? n.routine : null;
-        if (!r || String(n.status).toLowerCase() === 'dead') continue;
-        let target = slug(r[slot] || r.day, '');
-        if (target && !valid.has(target)) {
-            // ponytail: models emit names despite "location ids" guidance; accept both.
-            const byName = state.locations.find(l => slug(l.name, '') === target);
-            target = byName ? byName.id : '';
-        }
-        if (!target || !valid.has(target) || target === n.locationId) continue;
-        n.locationId = target;
-        moved = true;
-    }
-    if (moved) {
-        state.chronicle.push({ at: nowIso(), text: `As ${slot} settles in, folk drift to their usual haunts.` });
-        state.meta.lastProcessedSignature = '';
-    }
-}
-
-function upsert(collection, value, defaults = {}) {
-    if (!value || typeof value !== 'object') return;
-    const id = slug(value.id || value.name, 'entity');
-    const index = collection.findIndex(x => x.id === id || (value.name && x.name?.toLowerCase() === String(value.name).toLowerCase()));
-    if (index >= 0) collection[index] = { ...collection[index], ...value, id: collection[index].id };
-    else collection.push({ ...defaults, ...value, id });
-}
-
-function applyPatch(state, patch) {
-    const s = settings();
-    advanceClock(state.clock, patch.time_minutes, state);
-    if (patch.weather) state.clock.weather = String(patch.weather).slice(0, 100);
-    if (patch.ambient) state.scene.ambient = String(patch.ambient).trim().slice(0, 500);
-
-    if (s.allowNewCharacters) {
-        for (const npc of normalizeArray(patch.new_npcs)) {
-            upsert(state.npcs, npc, { locationId: state.currentLocationId, status: 'active', firstSeen: nowIso(), lastSeen: nowIso() });
-        }
-    }
-    for (const npc of normalizeArray(patch.npc_updates)) upsert(state.npcs, npc);
-
-    if (s.allowNewItems) {
-        for (const item of normalizeArray(patch.new_items)) {
-            upsert(state.items, item, { locationId: state.currentLocationId, quantity: 1, rarity: 'ordinary' });
-        }
-    }
-    for (const item of normalizeArray(patch.item_updates)) upsert(state.items, item);
-
-    if (s.allowNewLocations) {
-        for (const loc of normalizeArray(patch.new_locations)) {
-            upsert(state.locations, loc, { discovered: true, connections: [], danger: 'unknown' });
-        }
-    }
-    for (const loc of normalizeArray(patch.location_updates)) upsert(state.locations, loc);
-
-    // Auto-link freshly created locations both ways so new points of interest
-    // are immediately reachable from the current scene (and vice versa).
-    const createdLocs = normalizeArray(patch.new_locations).filter(Boolean);
-    if (createdLocs.length) {
-        const here = currentLocation(state);
-        for (const raw of createdLocs) {
-            const id = slug(raw.id || raw.name, 'location');
-            const existing = state.locations.find(x => x.id === id);
-            if (!existing) continue;
-            if (here && here.id !== existing.id) {
-                if (!existing.connections.includes(here.id)) existing.connections.push(here.id);
-                if (!here.connections.includes(existing.id)) here.connections.push(existing.id);
-            }
-        }
-    }
-
-    for (const faction of normalizeArray(patch.new_factions)) upsert(state.factions, faction, { status: 'active' });
-    for (const faction of normalizeArray(patch.faction_updates)) upsert(state.factions, faction);
-    for (const event of normalizeArray(patch.new_events)) upsert(state.events, event, { status: 'active', createdAt: nowIso() });
-    for (const event of normalizeArray(patch.event_updates)) upsert(state.events, event);
-    for (const quest of normalizeArray(patch.new_quests)) upsert(state.quests, quest, { status: 'active', createdAt: nowIso() });
-    for (const quest of normalizeArray(patch.quest_updates)) upsert(state.quests, quest);
-
-    const requestedLocation = slug(patch.current_location_id || '', 'location');
-    if (requestedLocation && state.locations.some(x => x.id === requestedLocation)) state.currentLocationId = requestedLocation;
-
-    const chronicle = normalizeArray(patch.chronicle);
-    if (patch.summary && !chronicle.length) chronicle.push(patch.summary);
-    for (const text of chronicle) {
-        if (String(text).trim()) state.chronicle.push({ at: nowIso(), text: String(text).trim().slice(0, 700) });
-    }
-    state.meta.tick = Number(state.meta.tick || 0) + 1;
-    state.meta.updatedAt = nowIso();
-    const normalized = normalizeState(state);
-    normalized.npcs = normalized.npcs.slice(-Number(s.maxNpcs || 48));
-    normalized.items = normalized.items.slice(-Number(s.maxItems || 80));
-    normalized.locations = normalized.locations.slice(-Number(s.maxLocations || 36));
-    return normalized;
-}
-
-async function runDirector(chat, force = false) {
+function inject() {
     const s = settings();
     const state = getState();
-    if (!s.enabled || !s.autoDirector || directorBusy) return state;
-    const signature = messageSignature(chat);
-    if (!force && signature === state.meta.lastProcessedSignature) return state;
-    if (!force && Number(state.meta.tick || 0) % Math.max(1, Number(s.directorEvery) || 1) !== 0) {
-        state.meta.tick += 1;
-        state.meta.lastProcessedSignature = signature;
-        scheduleSave();
-        return state;
+    const text = s.enabled && state ? buildInjection(state, { strictAgency: s.strictUserAgency }) : '';
+    ctx().setExtensionPrompt(PROMPT_ID, text, extension_prompt_types.IN_CHAT, Number(s.injectDepth) || 0, false, extension_prompt_roles.SYSTEM);
+}
+
+globalThis.immersiveWorldsGenerationInterceptor = async function () {
+    try { inject(); } catch (error) { console.error(`[${TITLE}] interceptor`, error); }
+};
+
+// ---------------------------------------------------------------------------
+// Director: one background call after a reply, swipe- and delete-safe.
+// The pre-turn state lives in chat metadata; the patch rides on the message.
+// ---------------------------------------------------------------------------
+
+function syncSwipe(msg) {
+    const k = msg.swipe_id;
+    if (typeof k !== 'number') return;
+    if (Array.isArray(msg.swipes) && typeof msg.swipes[k] === 'string') msg.swipes[k] = msg.mes;
+    if (Array.isArray(msg.swipe_info) && msg.swipe_info[k]) msg.swipe_info[k].extra = structuredClone(msg.extra ?? {});
+}
+
+function dropCachedPatch(index) {
+    const msg = ctx().chat?.[index];
+    if (!msg) return;
+    if (msg.extra) delete msg.extra.iw_patch;
+    for (const info of msg.swipe_info || []) if (info?.extra) delete info.extra.iw_patch;
+}
+
+function rewindTurn(index) {
+    const md = ctx().chatMetadata;
+    const turn = md?.[TURN_KEY];
+    if (!turn || turn.index !== index) return false;
+    md[STATE_KEY] = normalizeState(structuredClone(turn.state));
+    return true;
+}
+
+function setBusy(on, label = 'Director at work…') {
+    busy = on;
+    busyLabel = on ? label : '';
+    refresh();
+}
+
+function queueDirector(index) {
+    if (busy) { queued = index; return; }
+    runDirector(index).catch(error => console.error(`[${TITLE}] director`, error));
+}
+
+async function runDirector(index, { manual = false } = {}) {
+    const s = settings();
+    const c = ctx();
+    if (!getState() || busy) return;
+    const md = c.chatMetadata;
+    const chatId = c.getCurrentChatId();
+    const myEpoch = epoch;
+
+    const prev = md[TURN_KEY];
+    if (prev?.index === index) rewindTurn(index);
+    else {
+        if (prev) dropCachedPatch(prev.index);
+        md[TURN_KEY] = { index, state: structuredClone(getState()) };
     }
+    const state = getState();
+    const transcript = transcriptOf(c.chat, manual ? index - 3 : state.meta.lastIndex + 1, index);
 
-    directorBusy = true;
-    setDirectorStatus(true);
+    setBusy(true);
     try {
-        const prompt = `Update a persistent roleplay world after reading the latest scene.
-Do not write story prose. Produce only a state patch. Preserve established facts unless the transcript explicitly changes them. Infer reasonable time passage. Never invent actions or decisions for the user.
-Materialize the world actively: when the scene implies an object (a key, ledger, weapon, letter, goods), a place (a shopfront, door, district, landmark, off-screen destination), or a person (a mentioned name, a passerby with a role), create it now — do not wait for a second mention. Give new locations a connection to the current location. Give new items an owner or a location. Give new NPCs a routine (dawn/day/dusk/night → location ids) so they move with the clock even off-screen. Keep new characters distinct and motivated. Let active events, rumors, and quests evolve between passes: move characters through plausible routines as time passes (where they work, live, loiter), advance unresolved quests, and mark threads the transcript has settled as resolved. Be generous within plausibility: a living city is full of small things. Keep off-screen change causally justified and restrained.
-
-WORLD LORE / ACTIVE CHARACTER:
-${currentCharacterSummary(1000)}
-
-CURRENT STATE:
-${JSON.stringify(conciseState(state))}
-
-SCENE BRIEF (current atmosphere — keep it consistent):
-${atmosphereLine(state)}
-
-SIMULATION POLICY:
-Detail level: ${s.simulationDetail}. Off-screen events: ${s.allowOffscreenEvents ? 'allowed when restrained and causally justified' : 'disabled; update only what the transcript directly establishes'}. Dynamic characters: ${s.allowNewCharacters ? 'allowed' : 'disabled'}. Dynamic items: ${s.allowNewItems ? 'allowed' : 'disabled'}. Dynamic places: ${s.allowNewLocations ? 'allowed' : 'disabled'}.
-Growth budget: when the scene implies them, add up to ${s.simulationDetail === 'maximum' ? 3 : s.simulationDetail === 'high' ? 2 : 1} new item(s), ${s.simulationDetail === 'maximum' ? 2 : 1} new location(s), ${s.simulationDetail === 'maximum' ? 2 : 1} new NPC(s), and 1 new event per pass.
-
-RECENT TRANSCRIPT:
-${JSON.stringify(recentTranscript(chat, 6))}
-
-Patch field guidance:
-- IDs are lowercase stable slugs.
-- Updates must include id.
-- New NPCs need name, role, personality, appearance, goals, relationship, locationId, status, and a routine: an object mapping dawn/day/dusk/night to location ids where they usually are at those times.
-- New items need name, type, description, rarity, quantity, ownerId or locationId, properties.
-- ambient is 1-2 vivid sensory sentences for the current scene: light, weather, smell, sound, texture, mood. Concrete, not generic.
-- Chronicle contains 0-3 terse factual continuity notes.
-- time_minutes is elapsed scene time, usually 0-180.`;
-        const patch = await structuredGenerate({ prompt, schema: directorSchema, responseLength: clampBudget(Number(s.directorTokens) || 3000, 1000, 8192) });
-        const next = applyPatch(state, patch);
-        consecutiveDirectorFailures = 0;
-        next.meta.lastProcessedSignature = signature;
-        const ctx = getContext();
-        ctx.chatMetadata[STATE_KEY] = next;
-        injectState(next);
-        scheduleSave();
-        renderPanel();
-        return next;
-    } catch (error) {
-        consecutiveDirectorFailures += 1;
-        console.error('[Immersive Worlds] Director pass failed', error);
-
-        const rejected = isRequestRejection(error);
-        if (rejected && settings().suspendDirectorOnApiError) {
-            settings().autoDirector = false;
-            saveSettingsDebounced();
-            syncSettingsUi();
-            toastr.error('The API rejected the background director request, so Automatic State Director was disabled. The living-world prompt engine remains active and normal roleplay can continue.', 'Immersive Worlds');
-        } else {
-            toastr.warning(`Living-world director skipped this turn: ${errorText(error).slice(0, 180)}`, 'Immersive Worlds');
+        const prompt = c.substituteParams(directorPrompt(state, transcript, policy()));
+        log('director prompt', prompt.length, 'chars');
+        const raw = await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.directorTokens, 400, 8192), profileId: s.profileId, temperature: s.temperature, noReasoning: s.noReasoning });
+        const patch = parseJson(raw);
+        if (myEpoch !== epoch || ctx().getCurrentChatId() !== chatId || !getState()) return log('director result dropped: chat moved on');
+        const next = applyPatch(getState(), patch, policy());
+        next.meta.lastIndex = index;
+        next.meta.pending = 0;
+        const msg = ctx().chat?.[index];
+        if (msg && !msg.is_user) {
+            msg.extra ??= {};
+            msg.extra.iw_patch = patch;
+            syncSwipe(msg);
+            ctx().saveChat?.();
         }
-
-        injectState(state);
-        return state;
-    } finally {
-        directorBusy = false;
-        setDirectorStatus(false);
-    }
-}
-
-async function bootstrapWorld() {
-    const ctx = getContext();
-    if (!ctx?.chatId && ctx?.characterId === undefined && !ctx?.groupId) {
-        toastr.warning('Open a character or group chat first.');
-        return;
-    }
-    setDirectorStatus(true, 'Building city…');
-    directorBusy = true;
-    try {
-        const s = settings();
-        const prompt = `Create a compact but vivid persistent roleplay world from the supplied lore. The result must support an explorable city or settlement with independent residents, useful objects, social tensions, and room to expand naturally.
-Do not overwrite the user persona or decide their history. Seed 5-10 locations with sensible connections, 6-12 NPCs with distinct roles and motives, 6-14 interactable items, 2-4 factions if appropriate, and 1-3 active events. Use stable lowercase slug IDs. Put only currently present characters at the starting location. Avoid generic fantasy filler unless the lore calls for it.
-
-SOURCE LORE:\n${currentCharacterSummary(1500)}
-
-RECENT CHAT:\n${JSON.stringify(recentTranscript(ctx.chat, 6))}`;
-        const generated = await structuredGenerate({ prompt, schema: bootstrapSchema, responseLength: clampBudget(Number(s.bootstrapTokens) || 6000, 2000, 8192) });
-        const state = normalizeState({ ...baseWorld(), ...generated, chronicle: [{ at: nowIso(), text: 'The living world was generated from the active lore.' }], meta: { createdAt: nowIso(), updatedAt: nowIso(), tick: 0, lastProcessedSignature: '' } });
-        consecutiveDirectorFailures = 0;
-        ctx.chatMetadata[STATE_KEY] = state;
-        injectState(state);
-        await ctx.saveMetadata();
-        renderPanel();
-        toastr.success(`${state.worldName} is now live.`, 'Immersive Worlds');
+        log('director patch', patch);
+        setState(next);
+        inject();
     } catch (error) {
-        console.error('[Immersive Worlds] World generation failed', error);
-        toastr.error(`Could not generate the city: ${errorText(error).slice(0, 180)}`, 'Immersive Worlds');
+        console.error(`[${TITLE}] director pass failed`, error);
+        if (isRejection(error) && s.suspendDirectorOnApiError && !manual) {
+            s.autoDirector = false;
+            ctx().saveSettingsDebounced();
+            syncSettingsUi();
+            toastr.error('The API rejected the background world update, so automatic updates are paused. Pick a connection profile in the settings, then turn them back on.', TITLE);
+        } else {
+            toastr.warning(`World update skipped: ${errorText(error).slice(0, 180)}`, TITLE);
+        }
     } finally {
-        directorBusy = false;
-        setDirectorStatus(false);
+        setBusy(false);
+        const next = queued;
+        queued = null;
+        if (next !== null && next !== index) queueDirector(next);
     }
 }
 
-function setDirectorStatus(busy, label = 'Director thinking…') {
-    $('#iw-director-status').toggleClass('active', busy).text(busy ? label : 'World synchronized');
-    $('#iw-generate-world, #iw-run-director').prop('disabled', busy);
+function onMessageReceived(index, type) {
+    const s = settings();
+    const state = getState();
+    if (!s.enabled || !s.autoDirector || !state || ['first_message', 'impersonate', 'quiet'].includes(type)) return;
+    const msg = ctx().chat?.[index];
+    if (!msg || msg.is_user || msg.is_system) return;
+    if (ctx().chatMetadata[TURN_KEY]?.index === index) return queueDirector(index);
+    state.meta.pending += 1;
+    if (state.meta.pending >= Math.max(1, Number(s.directorEvery) || 1)) queueDirector(index);
+    else ctx().saveMetadataDebounced();
 }
 
-function escapeHtml(value) {
-    return $('<div>').text(String(value ?? '')).html();
+function onMessageSwiped(index) {
+    if (!getState() || !rewindTurn(index)) return;
+    epoch += 1;
+    const patch = ctx().chat?.[index]?.extra?.iw_patch;
+    if (patch) {
+        try {
+            const next = applyPatch(getState(), patch, policy());
+            next.meta.lastIndex = index;
+            next.meta.pending = 0;
+            ctx().chatMetadata[STATE_KEY] = next;
+        } catch (error) { console.warn(`[${TITLE}] cached patch rejected`, error); }
+    }
+    log('swipe', index, patch ? 'cached patch re-applied' : 'rewound, awaiting new reply');
+    setState(getState());
+    inject();
 }
 
-function entityEmpty(label) {
-    return `<div class="iw-empty">${escapeHtml(label)}</div>`;
+function onMessageDeleted(length) {
+    const md = ctx().chatMetadata;
+    const turn = md?.[TURN_KEY];
+    if (!getState() || !turn || turn.index < length) return;
+    rewindTurn(turn.index);
+    delete md[TURN_KEY];
+    epoch += 1;
+    log('message deleted: world rewound to before #' + turn.index);
+    setState(getState());
+    inject();
 }
 
-function questCards(quests) {
-    return quests.map(q => `<article class="iw-timeline-entry"><span></span><div><strong>${escapeHtml(q.name || q.title || 'Unnamed thread')}</strong><small>${escapeHtml(q.status || 'active')}</small><p>${escapeHtml(q.description || q.summary || '')}</p></div></article>`).join('');
+async function buildWorld() {
+    if (!hasChat()) return toastr.warning('Open a chat first.', TITLE);
+    if (busy) return;
+    const s = settings();
+    const c = ctx();
+    const chatId = c.getCurrentChatId();
+    setBusy(true, 'Building the world…');
+    try {
+        const chat = c.chat || [];
+        const prompt = c.substituteParams(bootstrapPrompt(lore(), transcriptOf(chat, chat.length - 6, chat.length - 1, { maxChars: 700 })));
+        const raw = await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.bootstrapTokens, 1500, 8192), profileId: s.profileId, temperature: Math.max(0.6, Number(s.temperature) || 0), noReasoning: s.noReasoning });
+        const generated = parseJson(raw);
+        if (ctx().getCurrentChatId() !== chatId) return;
+        const state = normalizeState({ ...baseWorld(cardInfo()), ...generated, chronicle: [{ at: nowIso(), text: 'The living world took shape.' }], meta: { bootstrapped: true, lastIndex: chat.length - 1 } });
+        delete ctx().chatMetadata[TURN_KEY];
+        setState(state);
+        inject();
+        await ctx().saveMetadata();
+        toastr.success(`${state.worldName} is live.`, TITLE);
+    } catch (error) {
+        console.error(`[${TITLE}] world build failed`, error);
+        toastr.error(`Could not build the world: ${errorText(error).slice(0, 180)}`, TITLE);
+    } finally {
+        setBusy(false);
+    }
 }
 
-function questSection(state) {
-    const done = ['resolved', 'failed', 'complete'];
-    const isActive = q => !done.includes(String(q.status || '').toLowerCase());
-    const active = state.quests.filter(isActive);
-    const finished = state.quests.filter(q => !isActive(q));
-    return `<section>
-        <div class="iw-section-title"><span>Quests &amp; storylines</span><span>${active.length} active</span></div>
-        <div class="iw-timeline">${questCards(active) || entityEmpty('No threads yet — the director records them as the story implies them.')}</div>
-        ${finished.length ? `<div class="iw-section-title iw-spaced"><span>Finished</span><span>${finished.length}</span></div><div class="iw-timeline">${questCards(finished)}</div>` : ''}
-    </section>`;
+// ---------------------------------------------------------------------------
+// Public API for Immersive Adventures and scripts.
+// ---------------------------------------------------------------------------
+
+function travelTo(q) {
+    const state = getState();
+    if (!state) return '';
+    const line = travel(state, q);
+    if (line) { setState(state); inject(); }
+    return line;
+}
+
+globalThis.immersiveWorlds = Object.freeze({
+    version: VERSION,
+    isActive: () => Boolean(settings().enabled && getState()),
+    getState,
+    brief: () => (getState() ? sceneBrief(getState()) : ''),
+    travel: travelTo,
+});
+
+// ---------------------------------------------------------------------------
+// UI
+// ---------------------------------------------------------------------------
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || lo)));
+const sectionLabel = (text, extra = '') => `<div class="imx-label"><span>${escapeHtml(text)}</span>${extra}</div>`;
+const count = n => `<span>${n}</span>`;
+
+function refresh() {
+    paintStatus();
+    applyAmbient();
+    if (isPanelOpen(PANEL_ID)) renderPanel();
+}
+
+function paintStatus() {
+    const slot = statusSlot('iw');
+    if (!slot) return;
+    const s = settings();
+    const state = getState();
+    if (!s.enabled || !s.showStatus || !state) { slot.innerHTML = ''; return; }
+    const loc = currentLocation(state);
+    slot.innerHTML = `
+        <button type="button" class="imx-chip" data-iw-open="world" title="${escapeHtml(state.clock.weather)} · ${escapeHtml(atmosphereLine(state))}"><i class="fa-solid ${weatherIcon(state)}"></i><span>Day ${state.clock.day} · ${escapeHtml(state.clock.time)}</span></button>
+        <button type="button" class="imx-chip" data-iw-open="world" title="${escapeHtml(cleanText(loc.description, 200))}"><i class="fa-solid fa-location-dot"></i><span>${escapeHtml(loc.name)}</span></button>
+        ${busy ? `<span class="imx-chip" title="${escapeHtml(busyLabel)}"><i class="fa-solid fa-feather-pointed fa-fade"></i></span>` : ''}`;
+}
+
+function applyAmbient() {
+    const s = settings();
+    const state = getState();
+    const on = Boolean(s.enabled && s.ambientEffects && state);
+    document.body.classList.toggle('iw-ambient', on);
+    if (on) {
+        document.body.dataset.iwTime = timeSlot(state);
+        document.body.dataset.iwWeather = weatherClass(state);
+    }
+}
+
+function openWorldPanel(tab = activeTab) {
+    activeTab = tab;
+    openPanel({ id: PANEL_ID, icon: 'fa-compass', title: TITLE, tabs: TABS, onTab: t => { activeTab = t; renderPanel(); } });
+    renderPanel();
+}
+
+function renderPanel() {
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel) return;
+    const state = getState();
+    const html = !state ? noWorld() : {
+        world: worldTab, people: peopleTab, items: itemsTab, history: historyTab, manage: manageTab,
+    }[activeTab]?.(state) ?? worldTab(state);
+    paintPanel(panel, {
+        tab: activeTab,
+        busy,
+        subtitle: busy ? busyLabel : state ? `${state.worldName} · day ${state.clock.day}, ${state.clock.time}` : 'No world in this chat',
+        html,
+    });
+}
+
+function noWorld() {
+    return `<div class="imx-section imx-hero">
+        <h3>No living world here yet</h3>
+        <p class="imx-text">Build one from the character and recent chat (one background call), or start blank and let it grow as you play.</p>
+        <div class="imx-actions">
+            <div class="menu_button menu_button_icon" data-iw="build"><i class="fa-solid fa-city"></i><span>Build world</span></div>
+            <div class="menu_button menu_button_icon" data-iw="start"><i class="fa-solid fa-seedling"></i><span>Start blank</span></div>
+        </div>
+    </div>`;
+}
+
+function threadCards(list) {
+    return list.map(t => `<div class="imx-card"><div class="imx-card-head"><b>${escapeHtml(t.name)}</b><span class="imx-tag">${escapeHtml(t.status)}</span></div>${t.description ? `<p class="imx-text">${escapeHtml(t.description)}</p>` : ''}</div>`).join('');
 }
 
 function worldTab(state) {
     const loc = currentLocation(state);
-    const connections = (loc?.connections || []).map(id => state.locations.find(x => x.id === id)).filter(Boolean);
-    const weatherIcon = WEATHER_ICONS[String(state.clock.weather || '').toLowerCase().replace(/[^a-z]+/g, '')] || 'fa-cloud-sun';
-    const locations = state.locations.map(x => `
-        <button class="iw-location-card ${x.id === state.currentLocationId ? 'active' : ''}" data-location="${escapeHtml(x.id)}">
-            <span class="iw-location-type">${escapeHtml(x.type)}</span>
-            <strong>${escapeHtml(x.name)}</strong>
-            <small>${escapeHtml(x.description)}</small>
-        </button>`).join('');
+    const exits = loc.connections.map(id => state.locations.find(l => l.id === id)).filter(Boolean);
+    const here = presentNpcs(state);
+    const quests = state.quests.filter(isOpen);
+    const events = state.events.filter(isOpen);
     return `
-        <section class="iw-hero">
-            <div>
-                <span class="iw-kicker"><i class="fa-solid ${weatherIcon} iw-weather-icon"></i> DAY ${escapeHtml(state.clock.day)} · ${escapeHtml(state.clock.time)} · ${escapeHtml(state.clock.weather)}</span>
-                <h2>${escapeHtml(state.worldName)}</h2>
-                <p>${escapeHtml(state.premise || 'A persistent world is taking shape around the conversation.')}</p>
-            </div>
-            <div class="iw-clock-orb" title="World clock"><span>${escapeHtml(state.clock.time)}</span></div>
+        ${state.meta.bootstrapped ? '' : `<div class="imx-card imx-callout"><span>This world is still a sketch.</span><div class="menu_button menu_button_icon" data-iw="build"><i class="fa-solid fa-city"></i><span>Build it out</span></div></div>`}
+        <section class="imx-section imx-hero">
+            <span class="imx-tag"><i class="fa-solid ${weatherIcon(state)}"></i> Day ${state.clock.day} · ${escapeHtml(state.clock.time)} · ${escapeHtml(state.clock.weather)}</span>
+            <h3>${escapeHtml(loc.name)}</h3>
+            <p class="imx-prose">${escapeHtml(atmosphereLine(state))}</p>
+            ${loc.description ? `<p class="imx-text">${escapeHtml(loc.description)}</p>` : ''}
+            ${here.length ? `<div class="imx-row">${here.map(n => `<button type="button" class="imx-pill" data-iw="inspect" data-id="${escapeHtml(n.id)}"><i class="fa-solid fa-user"></i>${escapeHtml(n.name)}</button>`).join('')}</div>` : ''}
         </section>
-        <section class="iw-atmosphere">
-            <span class="iw-kicker"><i class="fa-solid fa-wind"></i> Atmosphere</span>
-            <p>${escapeHtml(atmosphereLine(state))}</p>
+        <section class="imx-section">
+            ${sectionLabel('Go to', `<span class="imx-hint">15 min</span>`)}
+            <div class="imx-row">${exits.length ? exits.map(l => `<button type="button" class="imx-pill" data-iw="travel" data-id="${escapeHtml(l.id)}"><i class="fa-solid fa-route"></i>${escapeHtml(l.name)}</button>`).join('') : '<span class="imx-meta">No mapped exits yet. Mention a place and the director will chart it.</span>'}</div>
         </section>
-        <section class="iw-current-location">
-            <div class="iw-section-title"><span>Current location</span><button id="iw-edit-world" class="menu_button iw-mini"><i class="fa-solid fa-pen"></i></button></div>
-            <h3>${escapeHtml(loc?.name || 'Unknown')}</h3>
-            <p>${escapeHtml(loc?.description || '')}</p>
-            <div class="iw-chip-row">${connections.length ? connections.map(x => `<button class="iw-chip iw-travel" data-location="${escapeHtml(x.id)}"><i class="fa-solid fa-route"></i> ${escapeHtml(x.name)}</button>`).join('') : '<span class="iw-muted">No mapped exits yet.</span>'}</div>
-        </section>
-        ${questSection(state)}
-        <section>
-            <div class="iw-section-title"><span>Known places</span><span>${state.locations.length}</span></div>
-            <div class="iw-location-grid">${locations}</div>
+        <section class="imx-section">${sectionLabel('Quests', count(quests.length))}${threadCards(quests) || empty('No threads yet. They appear as the story implies them.')}</section>
+        ${events.length ? `<section class="imx-section">${sectionLabel('Stirring', count(events.length))}${threadCards(events)}</section>` : ''}
+        <section class="imx-section">
+            ${sectionLabel('Known places', count(state.locations.length))}
+            <div class="imx-grid">${state.locations.map(l => `<button type="button" class="imx-card ${l.id === loc.id ? 'is-here' : ''}" data-iw="travel" data-id="${escapeHtml(l.id)}"><span class="imx-tag">${escapeHtml(l.type)}</span><b>${escapeHtml(l.name)}</b><span class="imx-meta imx-clamp">${escapeHtml(l.description)}</span></button>`).join('')}</div>
         </section>`;
 }
 
+function npcCard(state, n) {
+    const where = state.locations.find(l => l.id === n.locationId)?.name || 'somewhere';
+    return `<div class="imx-card">
+        <div class="imx-card-head"><b>${escapeHtml(n.name)}</b><span class="imx-tag">${escapeHtml(n.status)}</span></div>
+        <span class="imx-meta">${escapeHtml(n.role)} · ${escapeHtml(where)}</span>
+        <p class="imx-text imx-clamp">${escapeHtml(n.personality || n.appearance || 'Not yet known.')}</p>
+        <div class="imx-actions">
+            <div class="menu_button menu_button_icon" data-iw="inspect" data-id="${escapeHtml(n.id)}"><i class="fa-solid fa-eye"></i><span>Inspect</span></div>
+            <div class="menu_button menu_button_icon ${n.materializedAvatar ? 'disabled' : ''}" data-iw="${n.materializedAvatar ? '' : 'materialize'}" data-id="${escapeHtml(n.id)}" title="Create a reusable character card with a world lorebook"><i class="fa-solid fa-id-card"></i><span>${n.materializedAvatar ? 'Has card' : 'Make card'}</span></div>
+        </div>
+    </div>`;
+}
+
 function peopleTab(state) {
-    const here = state.npcs.filter(n => n.locationId === state.currentLocationId);
-    const elsewhere = state.npcs.filter(n => n.locationId !== state.currentLocationId);
-    const cards = list => list.map(n => {
-        const loc = state.locations.find(x => x.id === n.locationId);
-        return `<article class="iw-entity-card">
-            <div class="iw-avatar-sigil">${escapeHtml(n.name.slice(0, 2).toUpperCase())}</div>
-            <div class="iw-entity-main">
-                <div class="iw-entity-heading"><strong>${escapeHtml(n.name)}</strong><span>${escapeHtml(n.status)}</span></div>
-                <small>${escapeHtml(n.role)} · ${escapeHtml(loc?.name || 'Unknown')}</small>
-                <p>${escapeHtml(n.personality || n.appearance || 'Not yet known.')}</p>
-                <div class="iw-card-actions">
-                    <button class="menu_button iw-mini iw-focus-npc" data-id="${escapeHtml(n.id)}"><i class="fa-solid fa-eye"></i> Inspect</button>
-                    <button class="menu_button iw-mini iw-materialize" data-id="${escapeHtml(n.id)}" ${n.materializedAvatar ? 'disabled' : ''}><i class="fa-solid fa-id-card"></i> ${n.materializedAvatar ? 'Card created' : 'Create card'}</button>
-                </div>
-            </div>
-        </article>`;
-    }).join('');
-    return `<section>
-        <div class="iw-section-title"><span>Present now</span><span class="iw-chip-row"><button id="iw-forge-npc" class="menu_button iw-mini"><i class="fa-solid fa-wand-sparkles"></i> Forge</button><button id="iw-add-npc" class="menu_button iw-mini"><i class="fa-solid fa-user-plus"></i> Add</button></span></div>
-        <div class="iw-entity-list">${here.length ? cards(here) : entityEmpty('Nobody else is currently recorded here.')}</div>
-        <div class="iw-section-title iw-spaced"><span>Elsewhere in the world</span><span>${elsewhere.length}</span></div>
-        <div class="iw-entity-list">${elsewhere.length ? cards(elsewhere) : entityEmpty('The wider cast will emerge as the world grows.')}</div>
-    </section>`;
+    const here = presentNpcs(state);
+    const elsewhere = state.npcs.filter(n => !here.includes(n));
+    return `
+        <section class="imx-section">
+            ${sectionLabel('Here now', `<span class="imx-actions"><div class="menu_button menu_button_icon" data-iw="forge" title="Invent people who fit this world"><i class="fa-solid fa-wand-sparkles"></i><span>Forge</span></div><div class="menu_button menu_button_icon" data-iw="add-npc"><i class="fa-solid fa-user-plus"></i><span>Add</span></div></span>`)}
+            ${here.map(n => npcCard(state, n)).join('') || empty('Nobody else is recorded here.')}
+        </section>
+        <section class="imx-section">${sectionLabel('Elsewhere', count(elsewhere.length))}${elsewhere.map(n => npcCard(state, n)).join('') || empty('The wider cast emerges as the world grows.')}</section>`;
 }
 
 function itemsTab(state) {
-    const inventory = new Set(state.player.inventoryIds || []);
+    const mine = new Set(state.player.inventoryIds);
     const cards = state.items.map(item => {
         const owner = state.npcs.find(n => n.id === item.ownerId);
-        const loc = state.locations.find(l => l.id === item.locationId);
-        return `<article class="iw-item-card">
-            <div class="iw-item-icon"><i class="fa-solid fa-cube"></i></div>
-            <div><div class="iw-entity-heading"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.rarity)}</span></div>
-            <small>${escapeHtml(item.type)} · ${escapeHtml(owner ? `Owned by ${owner.name}` : inventory.has(item.id) ? 'In your inventory' : loc?.name || 'Unknown')}</small>
-            <p>${escapeHtml(item.description)}</p></div>
-        </article>`;
+        const where = owner ? `held by ${owner.name}` : mine.has(item.id) ? 'yours' : state.locations.find(l => l.id === item.locationId)?.name || 'unknown';
+        return `<div class="imx-card"><div class="imx-card-head"><b>${escapeHtml(item.name)}${item.quantity > 1 ? ` ×${item.quantity}` : ''}</b><span class="imx-tag">${escapeHtml(item.rarity)}</span></div><span class="imx-meta">${escapeHtml(item.type)} · ${escapeHtml(where)}</span>${item.description ? `<p class="imx-text">${escapeHtml(item.description)}</p>` : ''}</div>`;
     }).join('');
-    return `<section>
-        <div class="iw-section-title"><span>Objects & inventory</span><button id="iw-add-item" class="menu_button iw-mini"><i class="fa-solid fa-plus"></i> Add</button></div>
-        <div class="iw-entity-list">${cards || entityEmpty('Items created by the story will appear here.')}</div>
-    </section>`;
+    return `<section class="imx-section">${sectionLabel('Objects', `<div class="menu_button menu_button_icon" data-iw="add-item"><i class="fa-solid fa-plus"></i><span>Add</span></div>`)}${cards || empty('Objects the story creates appear here.')}</section>`;
 }
 
-function timelineTab(state) {
-    const events = [...state.events].reverse().map(e => `<article class="iw-timeline-entry"><span></span><div><strong>${escapeHtml(e.name || e.title || 'World event')}</strong><p>${escapeHtml(e.description || e.summary || e.status || '')}</p></div></article>`).join('');
-    const chronicle = [...state.chronicle].reverse().map(e => `<article class="iw-timeline-entry"><span></span><div><strong>${escapeHtml(new Date(e.at || Date.now()).toLocaleString())}</strong><p>${escapeHtml(e.text)}</p></div></article>`).join('');
-    return `<section>
-        <div class="iw-section-title"><span>Active world events</span><span>${state.events.length}</span></div>
-        <div class="iw-timeline">${events || entityEmpty('No active events recorded.')}</div>
-        <div class="iw-section-title iw-spaced"><span>Chronicle</span><span>${state.chronicle.length}</span></div>
-        <div class="iw-timeline">${chronicle || entityEmpty('The chronicle is empty.')}</div>
-    </section>`;
+function historyTab(state) {
+    const done = [...state.quests, ...state.events].filter(t => !isOpen(t));
+    const timeline = [...state.chronicle].reverse().map(e => `<div><span class="imx-meta">${escapeHtml(new Date(e.at).toLocaleString())}</span><p class="imx-text">${escapeHtml(e.text)}</p></div>`).join('');
+    return `
+        <section class="imx-section">${sectionLabel('Chronicle', count(state.chronicle.length))}<div class="imx-timeline">${timeline || empty('Nothing recorded yet.')}</div></section>
+        ${state.factions.length ? `<section class="imx-section">${sectionLabel('Factions', count(state.factions.length))}${state.factions.map(f => `<div class="imx-card"><b>${escapeHtml(f.name)}</b>${f.description ? `<p class="imx-text">${escapeHtml(f.description)}</p>` : ''}${f.members.length ? `<span class="imx-meta">${escapeHtml(f.members.join(', '))}</span>` : ''}</div>`).join('')}</section>` : ''}
+        ${done.length ? `<section class="imx-section">${sectionLabel('Closed threads', count(done.length))}${threadCards(done)}</section>` : ''}`;
 }
 
-function settingsTab() {
+function manageTab(state) {
     const s = settings();
-    return `<section class="iw-panel-settings">
-        <div class="iw-section-title"><span>Simulation controls</span></div>
-        <label><span>Living-world engine</span><input id="iw-panel-enabled" type="checkbox" ${s.enabled ? 'checked' : ''}></label>
-        <label><span>Automatic director pass</span><input id="iw-panel-auto" type="checkbox" ${s.autoDirector ? 'checked' : ''}></label>
-        <label><span>Immersive visual layer</span><input id="iw-panel-theme" type="checkbox" ${s.immersiveTheme ? 'checked' : ''}></label>
-        <label><span>Ambient effects</span><input id="iw-panel-ambient" type="checkbox" ${s.ambientEffects ? 'checked' : ''}></label>
-        <div class="iw-button-grid">
-            <button id="iw-run-director" class="menu_button"><i class="fa-solid fa-wand-magic-sparkles"></i> Director pass</button>
-            <button id="iw-generate-world" class="menu_button"><i class="fa-solid fa-city"></i> Regenerate world</button>
-            <button id="iw-export" class="menu_button"><i class="fa-solid fa-file-export"></i> Export JSON</button>
-            <button id="iw-import" class="menu_button"><i class="fa-solid fa-file-import"></i> Import JSON</button>
-            <button id="iw-reset" class="menu_button danger_button"><i class="fa-solid fa-trash"></i> Reset world</button>
-        </div>
-        <input id="iw-import-file" type="file" accept="application/json" hidden>
-        <p class="iw-footnote">World data is stored inside the current chat metadata. Each chat can maintain a different city and timeline.</p>
-    </section>`;
+    return `
+        <section class="imx-section">
+            ${sectionLabel('This chat')}
+            <div class="imx-actions">
+                <div class="menu_button menu_button_icon" data-iw="pass" title="Update the world from the latest exchange now"><i class="fa-solid fa-wand-magic-sparkles"></i><span>Update now</span></div>
+                <div class="menu_button menu_button_icon" data-iw="identity"><i class="fa-solid fa-pen"></i><span>Edit identity</span></div>
+                <div class="menu_button menu_button_icon" data-iw="build"><i class="fa-solid fa-city"></i><span>Rebuild</span></div>
+                <div class="menu_button menu_button_icon" data-iw="export"><i class="fa-solid fa-file-export"></i><span>Export</span></div>
+                <div class="menu_button menu_button_icon" data-iw="import"><i class="fa-solid fa-file-import"></i><span>Import</span></div>
+                <div class="menu_button menu_button_icon redWarningBG" data-iw="remove"><i class="fa-solid fa-trash"></i><span>Remove world</span></div>
+            </div>
+            <input id="iw-import-file" type="file" accept="application/json,.json" hidden>
+        </section>
+        <section class="imx-section">
+            ${sectionLabel('Quick toggles')}
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="autoDirector" ${s.autoDirector ? 'checked' : ''}><span>Update after each reply</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="ambientEffects" ${s.ambientEffects ? 'checked' : ''}><span>Time-of-day tint</span></label>
+            <span class="imx-meta">All settings: Extensions → Immersive Worlds. Turn ${state.meta.tick} · v${VERSION}</span>
+        </section>`;
 }
 
-function renderPanel() {
-    const state = getState();
-    const body = $('#iw-panel-body');
-    if (!body.length) return;
-    const html = activeTab === 'world' ? worldTab(state)
-        : activeTab === 'people' ? peopleTab(state)
-            : activeTab === 'items' ? itemsTab(state)
-                : activeTab === 'timeline' ? timelineTab(state)
-                    : settingsTab();
-    body.html(html);
-    $('#iw-panel-tabs button').removeClass('active').filter(`[data-tab="${activeTab}"]`).addClass('active');
-    bindPanelEvents();
-    updateAmbientState(state);
-}
-
-function bindPanelEvents() {
-    $('#iw-panel-tabs button').off('click').on('click', function () {
-        activeTab = String($(this).data('tab'));
-        renderPanel();
-    });
-    $('.iw-location-card, .iw-travel').off('click').on('click', function () {
-        travelTo(String($(this).data('location')));
-    });
-    $('#iw-run-director').off('click').on('click', () => runDirector(getContext()?.chat || [], true));
-    $('#iw-generate-world').off('click').on('click', bootstrapWorld);
-    $('#iw-reset').off('click').on('click', resetWorld);
-    $('#iw-export').off('click').on('click', exportWorld);
-    $('#iw-import').off('click').on('click', () => $('#iw-import-file').trigger('click'));
-    $('#iw-import-file').off('change').on('change', importWorld);
-    $('#iw-add-npc').off('click').on('click', addNpcManual);
-    $('#iw-forge-npc').off('click').on('click', forgeCharacter);
-    $('#iw-add-item').off('click').on('click', addItemManual);
-    $('.iw-focus-npc').off('click').on('click', function () { inspectNpc(String($(this).data('id'))); });
-    $('.iw-materialize').off('click').on('click', function () { materializeNpc(String($(this).data('id'))); });
-    $('#iw-edit-world').off('click').on('click', editWorldPremise);
-    $('#iw-panel-enabled').off('change').on('change', function () { updateSetting('enabled', this.checked); injectState(); });
-    $('#iw-panel-auto').off('change').on('change', function () { updateSetting('autoDirector', this.checked); });
-    $('#iw-panel-theme').off('change').on('change', function () { updateSetting('immersiveTheme', this.checked); applyTheme(); });
-    $('#iw-panel-ambient').off('change').on('change', function () { updateSetting('ambientEffects', this.checked); updateAmbientState(getState()); });
-}
-
-function updateSetting(key, value) {
-    settings()[key] = value;
-    saveSettingsDebounced();
-}
-
-function travelTo(id) {
-    const state = getState();
-    const target = state.locations.find(x => x.id === id);
-    if (!target || target.id === state.currentLocationId) return;
-    const from = currentLocation(state);
-    state.currentLocationId = target.id;
-    advanceClock(state.clock, 15, state);
-    state.chronicle.push({ at: nowIso(), text: `Travelled from ${from?.name || 'an unknown place'} to ${target.name}.` });
-    state.meta.lastProcessedSignature = '';
-    injectState(state);
-    scheduleSave();
-    renderPanel();
-    toastr.info(`Current location: ${target.name}`, 'Immersive Worlds');
-}
-
-async function promptFields(title, fields) {
-    const controls = fields.map(f => `<label class="iw-dialog-field"><span>${escapeHtml(f.label)}</span>${f.type === 'textarea' ? `<textarea data-field="${escapeHtml(f.key)}" rows="4">${escapeHtml(f.value || '')}</textarea>` : `<input data-field="${escapeHtml(f.key)}" value="${escapeHtml(f.value || '')}">`}</label>`).join('');
-    const content = $(`<div class="iw-dialog"><h3>${escapeHtml(title)}</h3>${controls}</div>`);
-    const result = await getContext().callGenericPopup(content.get(0), getContext().POPUP_TYPE.CONFIRM, '', { okButton: 'Save', cancelButton: 'Cancel', allowVerticalScrolling: true, wide: true });
-    if (!result) return null;
-    return Object.fromEntries(fields.map(f => [f.key, String(content.find(`[data-field="${f.key}"]`).val() || '').trim()]));
-}
-
-async function addNpcManual() {
-    const values = await promptFields('Add a world character', [
-        { key: 'name', label: 'Name' },
-        { key: 'role', label: 'Role' },
-        { key: 'personality', label: 'Personality', type: 'textarea' },
-        { key: 'appearance', label: 'Appearance', type: 'textarea' },
-    ]);
-    if (!values?.name) return;
-    const state = getState();
-    state.npcs.push({ id: uniqueId(state.npcs, values.name, 'npc'), ...values, goals: [], relationship: 'Newly introduced', locationId: state.currentLocationId, status: 'present', secrets: [], inventory: [], firstSeen: nowIso(), lastSeen: nowIso(), materializedAvatar: '' });
-    state.chronicle.push({ at: nowIso(), text: `${values.name} entered the living-world roster.` });
-    injectState(state); scheduleSave(); renderPanel();
-}
-
-async function addItemManual() {
-    const values = await promptFields('Add an item', [
-        { key: 'name', label: 'Name' },
-        { key: 'type', label: 'Type' },
-        { key: 'description', label: 'Description', type: 'textarea' },
-        { key: 'rarity', label: 'Rarity', value: 'ordinary' },
-    ]);
-    if (!values?.name) return;
-    const state = getState();
-    state.items.push({ id: uniqueId(state.items, values.name, 'item'), ...values, quantity: 1, ownerId: '', locationId: state.currentLocationId, properties: [] });
-    state.chronicle.push({ at: nowIso(), text: `${values.name} was added at ${currentLocation(state)?.name}.` });
-    injectState(state); scheduleSave(); renderPanel();
+async function promptFields(title, fields, okButton = 'Save') {
+    const c = ctx();
+    const form = document.createElement('div');
+    form.className = 'imx-dialog';
+    form.innerHTML = `<h3>${escapeHtml(title)}</h3>${fields.map(f => `<label class="imx-field"><span>${escapeHtml(f.label)}</span>${f.type === 'textarea'
+        ? `<textarea class="text_pole" rows="4" data-field="${escapeHtml(f.key)}">${escapeHtml(f.value || '')}</textarea>`
+        : `<input class="text_pole" data-field="${escapeHtml(f.key)}" value="${escapeHtml(f.value || '')}">`}</label>`).join('')}`;
+    const ok = await c.callGenericPopup(form, c.POPUP_TYPE.CONFIRM, '', { okButton, cancelButton: 'Cancel', wide: true, allowVerticalScrolling: true });
+    if (!ok) return null;
+    return Object.fromEntries(fields.map(f => [f.key, String(form.querySelector(`[data-field="${f.key}"]`)?.value ?? '').trim()]));
 }
 
 async function inspectNpc(id) {
     const state = getState();
-    const n = state.npcs.find(x => x.id === id);
+    const n = state?.npcs.find(x => x.id === id);
     if (!n) return;
-    const loc = state.locations.find(x => x.id === n.locationId);
-    const routineText = n.routine && typeof n.routine === 'object'
-        ? ['dawn', 'day', 'dusk', 'night'].map(slot => {
-            const target = state.locations.find(l => l.id === slug(n.routine[slot] || '', ''));
-            return target ? `<b>${slot}</b>: ${escapeHtml(target.name)}` : '';
-        }).filter(Boolean).join(' · ')
-        : '';
-    const content = `<div class="iw-npc-detail"><h2>${escapeHtml(n.name)}</h2><div class="iw-chip-row"><span class="iw-chip">${escapeHtml(n.role)}</span><span class="iw-chip">${escapeHtml(n.status)}</span><span class="iw-chip">${escapeHtml(loc?.name || 'Unknown')}</span></div><h4>Appearance</h4><p>${escapeHtml(n.appearance || 'Unknown')}</p><h4>Personality</h4><p>${escapeHtml(n.personality || 'Unknown')}</p><h4>Relationship</h4><p>${escapeHtml(n.relationship || 'Unknown')}</p><h4>Goals</h4><p>${escapeHtml((n.goals || []).join(' · ') || 'Unknown')}</p>${routineText ? `<h4>Routine</h4><p>${routineText}</p>` : ''}</div>`;
-    await getContext().callGenericPopup(content, getContext().POPUP_TYPE.TEXT, '', { allowVerticalScrolling: true, wide: true });
+    const where = state.locations.find(l => l.id === n.locationId)?.name || 'unknown';
+    const routine = n.routine ? Object.entries(n.routine).map(([slot, lid]) => `${slot}: ${state.locations.find(l => l.id === lid)?.name || lid}`).join(' · ') : '';
+    const rows = [['Appearance', n.appearance], ['Personality', n.personality], ['Relationship', n.relationship], ['Goals', n.goals.join(' · ')], ['Routine', routine], ['Carries', n.inventory.join(', ')]];
+    const html = `<div class="imx-dialog"><h3>${escapeHtml(n.name)}</h3><div class="imx-row"><span class="imx-pill">${escapeHtml(n.role)}</span><span class="imx-pill">${escapeHtml(n.status)}</span><span class="imx-pill"><i class="fa-solid fa-location-dot"></i>${escapeHtml(where)}</span></div>${rows.filter(([, v]) => v).map(([k, v]) => `<div><div class="imx-label">${k}</div><p class="imx-text">${escapeHtml(v)}</p></div>`).join('')}</div>`;
+    await ctx().callGenericPopup(html, ctx().POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
 }
 
-function describeNpcDeeply(state, npc) {
-    const loc = state.locations.find(x => x.id === npc.locationId);
-    const owned = state.items.filter(i => i.ownerId === npc.id).map(i => `${i.name}${i.quantity > 1 ? ` x${i.quantity}` : ''} (${i.type}, ${i.rarity}) — ${i.description}`);
-    const factionNames = state.factions
-        .map(f => ({ f, members: Array.isArray(f.members) ? f.members : [] }))
-        .filter(({ f, members }) => f.name && (members.some(m => String(m?.name || m).toLowerCase() === npc.name.toLowerCase()) || members.some(m => slug(String(m?.id || m), 'npc') === npc.id)))
-        .map(({ f }) => `${f.name} — ${f.description || 'no description'}`);
-    const lines = [
-        `Name: ${cleanText(npc.name, 100)}`,
-        `Role: ${cleanText(npc.role, 160)}`,
-        `Status: ${cleanText(npc.status, 100)}`,
-        `Location: ${loc ? `${cleanText(loc.name, 120)} — ${cleanText(loc.description, 300)}` : 'unknown'}`,
-        '',
-        `Appearance: ${npc.appearance ? cleanText(npc.appearance, 900) : 'Unknown'}`,
-        '',
-        `Personality: ${npc.personality ? cleanText(npc.personality, 900) : 'Undefined'}`,
-        '',
-        npc.goals.length ? `Goals:\n${npc.goals.map(g => `- ${g}`).join('\n')}` : 'Goals: none recorded',
-        npc.secrets.filter(Boolean).length ? `Secrets (never state these outright; let them leak through behavior):\n${npc.secrets.map(s => `- ${s}`).join('\n')}` : '',
-        npc.inventory.length ? `Carries: ${npc.inventory.join(', ')}` : (owned.length ? `Owns:\n${owned.map(o => `- ${o}`).join('\n')}` : ''),
-        factionNames.length ? `Faction ties: ${factionNames.join('; ')}` : '',
-        `Relationship to {{user}}: ${npc.relationship ? cleanText(npc.relationship, 400) : 'unknown'}`,
-        '',
-        `World: ${state.worldName} — ${state.genre}, ${state.tone}.`,
-        `Premise: ${cleanText(state.premise, 800)}`,
-        state.rules.length ? `World rules: ${state.rules.join('; ')}` : '',
-        '',
-        'Stay in character at all times. You know only what this character would plausibly know about the world; convey knowledge and mood through behavior rather than exposition.',
-    ];
-    return lines.filter(l => l !== '').join('\n');
+async function addNpc() {
+    const v = await promptFields('Add a person', [{ key: 'name', label: 'Name' }, { key: 'role', label: 'Role' }, { key: 'personality', label: 'Personality', type: 'textarea' }, { key: 'appearance', label: 'Appearance', type: 'textarea' }]);
+    const state = getState();
+    if (!v?.name || !state) return;
+    state.npcs.push({ ...v, id: uniqueId(state.npcs, v.name, 'npc'), locationId: state.currentLocationId, status: 'present', firstSeen: nowIso(), lastSeen: nowIso() });
+    state.chronicle.push({ at: nowIso(), text: `${v.name} entered the story.` });
+    setState(normalizeState(state));
+    inject();
 }
 
-function buildCharacterBook(state, npc) {
-    const entry = (keys, content, options = {}) => ({
-        uid: options.uid ?? 0,
-        key: keys,
-        keysecondary: [],
-        comment: options.comment || keys.join(', '),
-        content,
-        constant: options.constant ?? false,
-        selective: true,
-        order: options.order ?? 100,
-        position: options.position ?? 0,
-        disable: false,
-        addMemo: true,
-        excludeRecursion: false,
-        preventRecursion: false,
-        delayUntilRecursion: false,
-        probability: 100,
-        useProbability: true,
-        depth: 4,
-        group: '',
-        groupOverride: false,
-        groupWeight: 100,
-        scanDepth: null,
-        caseSensitive: null,
-        matchWholeWords: null,
-        useGroupScoring: null,
-        automationId: '',
-        role: null,
-        vectorized: false,
-        sticky: 0,
-        cooldown: 0,
-        delay: 0,
-        displayIndex: options.uid ?? 0,
-    });
-    const loc = state.locations.find(x => x.id === npc.locationId);
-    let uid = 0;
-    const entries = [
-        entry([state.worldName], `${state.worldName}: ${cleanText(state.premise, 700)} Genre: ${state.genre}. Tone: ${state.tone}.${state.rules.length ? ` Rules: ${state.rules.join('; ')}.` : ''}`, { uid: uid++, constant: true, order: 10, comment: `${state.worldName} overview` }),
-    ];
-    if (loc) entries.push(entry([loc.name], `${loc.name} (${loc.type}): ${cleanText(loc.description, 500)}${loc.danger && loc.danger !== 'unknown' ? ` Danger: ${loc.danger}.` : ''}`, { uid: uid++, order: 20 }));
-    for (const other of state.locations.filter(x => x.id !== npc.locationId).slice(0, 8)) {
-        entries.push(entry([other.name], `${other.name} (${other.type}): ${cleanText(other.description, 300)}`, { uid: uid++, order: 80 }));
-    }
-    for (const item of state.items.filter(i => i.ownerId === npc.id)) {
-        entries.push(entry([item.name], `${item.name} (${item.type}, ${item.rarity}): ${item.description}`, { uid: uid++, order: 60 }));
-    }
-    return {
-        name: `${state.worldName} — ${npc.name}`,
-        description: `Lorebook bundled with ${npc.name}, generated by Immersive Worlds from the living-world state of ${state.worldName}.`,
-        scan_depth: 2,
-        token_budget: 512,
-        recursive_scanning: false,
-        extensions: {},
-        entries,
-    };
+async function addItem() {
+    const v = await promptFields('Add an item', [{ key: 'name', label: 'Name' }, { key: 'type', label: 'Type' }, { key: 'description', label: 'Description', type: 'textarea' }, { key: 'rarity', label: 'Rarity', value: 'ordinary' }]);
+    const state = getState();
+    if (!v?.name || !state) return;
+    state.items.push({ ...v, id: uniqueId(state.items, v.name, 'item'), locationId: state.currentLocationId });
+    setState(normalizeState(state));
+    inject();
 }
 
-async function confirmMaterialization(npc, description, personality, scenario, firstMes) {
-    const values = await promptFields(`Materialize ${npc.name} as a SillyTavern character`, [
-        { key: 'description', label: 'Description', type: 'textarea', value: description },
-        { key: 'personality', label: 'Personality summary', type: 'textarea', value: personality },
-        { key: 'scenario', label: 'Scenario', type: 'textarea', value: scenario },
-        { key: 'first_mes', label: 'First message', type: 'textarea', value: firstMes },
-    ]);
-    if (!values) toastr.info('Character creation cancelled.', 'Immersive Worlds');
-    return values;
+async function editIdentity() {
+    const state = getState();
+    const v = await promptFields('World identity', [{ key: 'worldName', label: 'Name', value: state.worldName }, { key: 'premise', label: 'Premise', type: 'textarea', value: state.premise }, { key: 'genre', label: 'Genre', value: state.genre }, { key: 'tone', label: 'Tone', value: state.tone }]);
+    if (!v) return;
+    Object.assign(state, v);
+    setState(normalizeState(state));
+    inject();
 }
 
-async function createNpcCard(state, npc, fields) {
-    const bookName = `${state.worldName} — ${npc.name}`.slice(0, 80);
-    let world = '';
+async function forgePeople() {
+    const state = getState();
+    if (!state || busy) return;
+    const v = await promptFields('Forge people', [{ key: 'concept', label: 'Who do you want? (a concept or vibe; empty = surprise me)', type: 'textarea' }], 'Forge');
+    if (v === null) return;
+    const s = settings();
+    const n = s.simulationDetail === 'balanced' ? 1 : 2;
+    const prompt = ctx().substituteParams(`${directorPrompt(state, '', policy()).split('\nNEW EXCHANGE')[0]}
+Invent ${n} new person(s) who belong in this world${v.concept ? `, matching: ${v.concept}` : ''}. Each needs a distinct role, concise vivid appearance and personality, 1-3 goals, up to 2 secrets, carried items, a relationship to {{user}}, a locationId and a routine.
+Return {"npcs":[{"id","name","role","appearance","personality","goals":[],"secrets":[],"inventory":[],"relationship","locationId","status","routine":{"dawn","day","dusk","night"}}]}`);
+    setBusy(true, 'Forging people…');
     try {
-        const form = new FormData();
-        form.set('avatar', new Blob([JSON.stringify(buildCharacterBook(state, npc))], { type: 'application/json' }), `${bookName}.json`);
-        form.set('convertedData', '');
-        const response = await fetch('/api/worldinfo/import', {
-            method: 'POST',
-            headers: getRequestHeaders({ omitContentType: true }),
-            body: form,
-            cache: 'no-cache',
-        });
-        if (!response.ok) throw new Error(`Lorebook import failed (${response.status})`);
-        const result = await response.json();
-        world = result?.name || '';
+        const patch = parseJson(await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.directorTokens, 400, 8192), profileId: s.profileId, temperature: Math.max(0.8, Number(s.temperature) || 0), noReasoning: s.noReasoning }));
+        const people = (Array.isArray(patch?.npcs) ? patch.npcs : []).filter(p => p?.name).slice(0, 4).map(p => ({ ...p, id: uniqueId(getState().npcs, p.name, 'npc') }));
+        if (!people.length) throw new Error('The model returned nobody usable.');
+        const next = applyPatch(getState(), { npcs: people, chronicle: people.map(p => `${p.name} joined the cast.`) }, { ...policy(), allowNewCharacters: true });
+        setState(next);
+        inject();
+        toastr.success(`Forged: ${people.map(p => p.name).join(', ')}`, TITLE);
     } catch (error) {
-        console.warn('[Immersive Worlds] Lorebook import failed, creating card without one.', error);
-        toastr.warning('The world lorebook could not be imported; the card will be created without it.', 'Immersive Worlds');
+        toastr.error(`Forge failed: ${errorText(error).slice(0, 180)}`, TITLE);
+    } finally {
+        setBusy(false);
     }
-    const form = new FormData();
-    form.set('ch_name', npc.name);
-    form.set('description', fields.description);
-    form.set('personality', fields.personality);
-    form.set('scenario', fields.scenario);
-    form.set('first_mes', fields.first_mes);
-    form.set('mes_example', '');
-    form.set('creator_notes', `Generated from Immersive Worlds in ${state.worldName}.`);
-    form.set('creator', 'Immersive Worlds');
-    form.set('tags', `Immersive Worlds, ${state.worldName}`);
-    form.set('talkativeness', '0.5');
-    if (world) form.set('world', world);
-    form.set('extensions', JSON.stringify({ immersive_worlds: { sourceWorld: state.worldName, npcId: npc.id } }));
-    form.set('fav', 'false');
-    const response = await fetch('/api/characters/create', {
-        method: 'POST',
-        headers: getRequestHeaders({ omitContentType: true }),
-        body: form,
-        cache: 'no-cache',
-    });
-    if (!response.ok) throw new Error(`Character creation failed (${response.status})`);
-    return await response.text();
+}
+
+// "lamplighter" -> "a lamplighter"; "the harbormaster" stays as written.
+const withArticle = role => !role ? 'someone' : /^(a|an|the|my|his|her|their)\s/i.test(role) ? role : `${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${role}`;
+
+function npcDescription(state, npc) {
+    const loc = state.locations.find(x => x.id === npc.locationId);
+    const owned = state.items.filter(i => i.ownerId === npc.id).map(i => `${i.name} (${i.type}) — ${i.description}`);
+    const factions = state.factions.filter(f => f.members.some(m => m.toLowerCase() === npc.name.toLowerCase() || slug(m, '') === npc.id)).map(f => f.name);
+    return [
+        `${npc.name} is ${withArticle(npc.role)} in ${state.worldName}${loc ? `, usually found at ${loc.name}` : ''}.`,
+        npc.appearance && `Appearance: ${npc.appearance}`,
+        npc.personality && `Personality: ${npc.personality}`,
+        npc.goals.length && `Goals:\n${npc.goals.map(g => `- ${g}`).join('\n')}`,
+        npc.secrets.length && `Secrets (never stated outright; they leak through behavior):\n${npc.secrets.map(x => `- ${x}`).join('\n')}`,
+        (npc.inventory.length || owned.length) && `Carries: ${[...npc.inventory, ...owned].join('; ')}`,
+        factions.length && `Faction ties: ${factions.join(', ')}`,
+        `Relationship to {{user}}: ${npc.relationship}`,
+        `World: ${state.genre}; ${state.tone}.${state.rules.length ? ` Rules: ${state.rules.join('; ')}.` : ''}`,
+    ].filter(Boolean).join('\n\n');
+}
+
+async function makeLorebook(state, npc) {
+    const c = ctx();
+    const names = c.getWorldInfoNames?.() ?? [];
+    let name = `${state.worldName} — ${npc.name}`.slice(0, 80);
+    for (let i = 2; names.includes(name); i++) name = `${state.worldName} — ${npc.name} (${i})`.slice(0, 80);
+    const data = { entries: {} };
+    const add = (keys, content, extra = {}) => Object.assign(createWorldInfoEntry(name, data), { key: keys, comment: keys[0], content, ...extra });
+    add([state.worldName], `${state.worldName}: ${cleanText(state.premise, 700)} Genre: ${state.genre}. Tone: ${state.tone}.${state.rules.length ? ` Rules: ${state.rules.join('; ')}.` : ''}`, { constant: true, order: 10 });
+    for (const loc of state.locations.slice(0, 12)) add([loc.name], `${loc.name} (${loc.type}): ${cleanText(loc.description, 400)}`, { order: loc.id === npc.locationId ? 20 : 80 });
+    for (const other of state.npcs.filter(x => x.id !== npc.id).slice(0, 10)) add([other.name], `${other.name}: ${other.role}. ${cleanText(other.personality, 200)}`, { order: 70 });
+    for (const item of state.items.filter(i => i.ownerId === npc.id)) add([item.name], `${item.name} (${item.type}, ${item.rarity}): ${cleanText(item.description, 300)}`, { order: 60 });
+    await c.saveWorldInfo(name, data, true);
+    await c.updateWorldInfoList?.();
+    return name;
 }
 
 async function materializeNpc(id) {
     const state = getState();
-    const npc = state.npcs.find(x => x.id === id);
+    const npc = state?.npcs.find(x => x.id === id);
     if (!npc || npc.materializedAvatar) return;
     const loc = state.locations.find(x => x.id === npc.locationId);
-    const description = describeNpcDeeply(state, npc);
-    const personality = [npc.personality, npc.goals.length ? `Driven by: ${npc.goals.join('; ')}.` : '', npc.relationship ? `Relationship to {{user}}: ${npc.relationship}.` : ''].filter(Boolean).join(' ');
-    const scenario = `{{char}} is ${npc.role} in ${state.worldName}, currently at ${loc ? loc.name : 'an unknown place'}. {{user}} arrives as the story dictates.`;
-    const firstMes = `*${npc.name} notices {{user}} nearby.*`;
-    const fields = await confirmMaterialization(npc, description, personality, scenario, firstMes);
+    const fields = await promptFields(`Character card for ${npc.name}`, [
+        { key: 'description', label: 'Description', type: 'textarea', value: npcDescription(state, npc) },
+        { key: 'personality', label: 'Personality summary', type: 'textarea', value: [npc.personality, npc.goals.length ? `Driven by: ${npc.goals.join('; ')}.` : ''].filter(Boolean).join(' ') },
+        { key: 'scenario', label: 'Scenario', type: 'textarea', value: `{{char}} is ${withArticle(npc.role)} in ${state.worldName}, currently at ${loc?.name || 'an unknown place'}. {{user}} arrives as the story dictates.` },
+        { key: 'first_mes', label: 'First message', type: 'textarea', value: `*${npc.name} notices {{user}}.*` },
+    ], 'Create card');
     if (!fields) return;
     try {
-        npc.materializedAvatar = await createNpcCard(state, npc, fields);
-        scheduleSave(); renderPanel();
-        toastr.success(`${npc.name} is now a reusable SillyTavern character card with a bundled world lorebook.`, 'Immersive Worlds');
-    } catch (error) {
-        console.error(error);
-        toastr.error(`Could not create a character card for ${npc.name}.`, 'Immersive Worlds');
-    }
-}
-
-const forgeSchema = {
-    name: 'forged_npc',
-    strict: false,
-    value: {
-        type: 'object',
-        properties: {
-            npcs: {
-                type: 'array',
-                items: {
-                    type: 'object',
-                    properties: {
-                        name: { type: 'string' },
-                        role: { type: 'string' },
-                        appearance: { type: 'string' },
-                        personality: { type: 'string' },
-                        goals: { type: 'array', items: { type: 'string' } },
-                        secrets: { type: 'array', items: { type: 'string' } },
-                        inventory: { type: 'array', items: { type: 'string' } },
-                        relationship: { type: 'string' },
-                    },
-                    required: ['name', 'role', 'appearance', 'personality'],
-                },
-            },
-        },
-        required: ['npcs'],
-    },
-};
-
-async function forgeCharacter() {
-    const state = getState();
-    const concept = await promptFields('Forge a character', [
-        { key: 'concept', label: 'Describe the character you want (a concept, a vibe, or leave empty to be surprised)', type: 'textarea', value: '' },
-    ]);
-    if (concept === null) return;
-    const brief = conciseState(state);
-    const count = settings().simulationDetail === 'low' ? 1 : 2;
-    const prompt = `You are forging characters for an existing living world. Create ${count} new character(s) who could plausibly belong to this world. Respect its genre, tone, rules, and premise. Give each a distinct role, vivid but concise appearance and personality, 1-3 goals, at most 2 secrets, optional carried items, and their relationship to the visitor ("{{user}}").${concept.concept ? ` The user wants: ${concept.concept}.` : ' Surprise the user with something fresh that fits.'}\n\nWORLD STATE:\n${JSON.stringify(brief)}`;
-    setDirectorStatus(true, 'Forging character…');
-    try {
-        const patch = await structuredGenerate({ prompt, schema: forgeSchema, responseLength: settings().directorTokens || 3000 });
-        const forged = normalizeArray(patch?.npcs).slice(0, 4)
-            .filter(n => n && String(n.name || '').trim())
-            .map(n => ({
-                id: '',
-                name: cleanText(n.name, 100),
-                role: cleanText(n.role, 160),
-                appearance: cleanText(n.appearance, 900),
-                personality: cleanText(n.personality, 900),
-                goals: normalizeArray(n.goals).map(g => cleanText(g, 200)).slice(0, 8),
-                secrets: normalizeArray(n.secrets).map(s => cleanText(s, 300)).slice(0, 6),
-                inventory: normalizeArray(n.inventory).map(i => cleanText(i, 120)).slice(0, 20),
-                relationship: cleanText(n.relationship, 500),
-            }));
-        if (!forged.length) throw new Error('The model returned no usable characters.');
-        for (const n of forged) {
-            state.npcs.push({ ...n, id: uniqueId(state.npcs, n.name, 'npc'), locationId: state.currentLocationId, status: 'present', firstSeen: nowIso(), lastSeen: nowIso(), materializedAvatar: '' });
-            state.chronicle.push({ at: nowIso(), text: `${n.name} was forged into the world.` });
+        let world = '';
+        try { world = await makeLorebook(state, npc); } catch (error) {
+            console.warn(`[${TITLE}] lorebook`, error);
+            toastr.warning('The world lorebook could not be created; making the card without it.', TITLE);
         }
-        injectState(state); scheduleSave(); renderPanel();
-        toastr.success(`Forged: ${forged.map(n => n.name).join(', ')}`, 'Immersive Worlds');
+        const form = new FormData();
+        const set = { ch_name: npc.name, ...fields, mes_example: '', creator_notes: `Generated by Immersive Worlds from ${state.worldName}.`, creator: 'Immersive Worlds', tags: `Immersive Worlds, ${state.worldName}`, talkativeness: '0.5', fav: 'false', extensions: JSON.stringify({ immersive_worlds: { sourceWorld: state.worldName, npcId: npc.id } }) };
+        for (const [k, v] of Object.entries(set)) form.set(k, v);
+        if (world) form.set('world', world);
+        const res = await fetch('/api/characters/create', { method: 'POST', headers: ctx().getRequestHeaders({ omitContentType: true }), body: form, cache: 'no-cache' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        npc.materializedAvatar = await res.text();
+        setState(state);
+        await ctx().getCharacters?.();
+        toastr.success(`${npc.name} is now a character card${world ? ' with its own world lorebook' : ''}.`, TITLE);
     } catch (error) {
-        console.error(error);
-        toastr.error(`Character forge failed: ${errorText(error)}`, 'Immersive Worlds');
-    } finally {
-        setDirectorStatus(false);
+        toastr.error(`Could not create a card for ${npc.name}: ${errorText(error)}`, TITLE);
     }
 }
 
-async function editWorldPremise() {
-    const state = getState();
-    const values = await promptFields('Edit world identity', [
-        { key: 'worldName', label: 'World name', value: state.worldName },
-        { key: 'premise', label: 'Premise', value: state.premise, type: 'textarea' },
-        { key: 'tone', label: 'Tone', value: state.tone },
-    ]);
-    if (!values) return;
-    Object.assign(state, values);
-    injectState(state); scheduleSave(); renderPanel();
-}
-
-async function resetWorld() {
-    const yes = await getContext().callGenericPopup('Reset the living world for this chat? This removes its generated locations, NPCs, items, and timeline.', getContext().POPUP_TYPE.CONFIRM);
-    if (!yes) return;
-    getContext().chatMetadata[STATE_KEY] = baseWorld();
-    injectState(); await getContext().saveMetadata(); renderPanel();
+async function removeWorld() {
+    const c = ctx();
+    if (!await c.callGenericPopup('Remove the living world from this chat? Places, people, items and history are deleted. Export first to keep a copy.', c.POPUP_TYPE.CONFIRM)) return;
+    delete c.chatMetadata[STATE_KEY];
+    delete c.chatMetadata[TURN_KEY];
+    epoch += 1;
+    inject();
+    await c.saveMetadata();
+    refresh();
 }
 
 function exportWorld() {
-    const blob = new Blob([JSON.stringify(getState(), null, 2)], { type: 'application/json' });
+    const state = getState();
+    if (!state) return;
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${slug(getState().worldName, 'living-world')}.json`;
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }));
+    a.download = `${slug(state.worldName, 'living-world')}.json`;
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-async function importWorld(event) {
-    const file = event.target.files?.[0];
+async function importWorld(file) {
     if (!file) return;
     try {
-        const data = normalizeState(JSON.parse(await file.text()));
-        getContext().chatMetadata[STATE_KEY] = data;
-        injectState(data); await getContext().saveMetadata(); renderPanel();
-        toastr.success(`${data.worldName} imported.`, 'Immersive Worlds');
+        if (file.size > MAX_IMPORT_BYTES) throw new Error('file is larger than 5 MB');
+        const data = JSON.parse(await file.text());
+        if (!data || typeof data !== 'object' || !Array.isArray(data.locations)) throw new Error('not an Immersive Worlds export');
+        const state = normalizeState(data);
+        delete ctx().chatMetadata[TURN_KEY];
+        setState(state);
+        inject();
+        await ctx().saveMetadata();
+        toastr.success(`${state.worldName} imported.`, TITLE);
     } catch (error) {
-        toastr.error('That file is not a valid Immersive Worlds state.');
-    } finally {
-        event.target.value = '';
+        toastr.error(`Import failed: ${errorText(error)}`, TITLE);
     }
 }
 
-function updateAmbientState(state) {
-    const s = settings();
-    document.body.classList.toggle('iw-theme-enabled', Boolean(s.immersiveTheme));
-    document.body.classList.toggle('iw-ambient-enabled', Boolean(s.immersiveTheme && s.ambientEffects));
-    const [hour] = String(state?.clock?.time || '12:00').split(':').map(Number);
-    document.body.dataset.iwTime = hour < 6 ? 'night' : hour < 10 ? 'dawn' : hour < 18 ? 'day' : hour < 21 ? 'dusk' : 'night';
-    document.body.dataset.iwWeather = slug(state?.clock?.weather || 'clear', 'clear');
-    $('#iw-location-label').text(currentLocation(state)?.name || 'No active world');
-}
-
-function applyTheme() {
-    updateAmbientState(getState());
-}
-
-async function createUi() {
-    if (!$(`#${PANEL_ID}`).length) {
-        const html = await renderExtensionTemplateAsync('third-party/ImmersiveWorlds', 'panel');
-        $('body').append(html);
+async function onAction(action, el) {
+    const id = el?.dataset?.id;
+    switch (action) {
+        case 'build': return buildWorld();
+        case 'start': return startWorld();
+        case 'travel': return travelTo(id) && toastr.info(`Now at ${currentLocation(getState()).name}.`, TITLE);
+        case 'inspect': return inspectNpc(id);
+        case 'materialize': return materializeNpc(id);
+        case 'forge': return forgePeople();
+        case 'add-npc': return addNpc();
+        case 'add-item': return addItem();
+        case 'identity': return editIdentity();
+        case 'pass': {
+            const chat = ctx().chat || [];
+            const last = chat.findLastIndex(m => !m.is_user && !m.is_system);
+            return last >= 0 ? runDirector(last, { manual: true }) : toastr.info('No reply to read yet.', TITLE);
+        }
+        case 'export': return exportWorld();
+        case 'import': return document.getElementById('iw-import-file')?.click();
+        case 'remove': return removeWorld();
     }
-    if (!$(`#${SETTINGS_ID}`).length) {
-        const html = await renderExtensionTemplateAsync('third-party/ImmersiveWorlds', 'settings');
-        const target = $('#extensions_settings2').length ? $('#extensions_settings2') : $('#extensions_settings');
-        target.append(html);
-    }
-    bindStaticEvents();
-    syncSettingsUi();
-    renderPanel();
-}
-
-function bindStaticEvents() {
-    $('#iw-open-panel, #iw-floating-button').off('click').on('click', () => {
-        $(`#${PANEL_ID}`).toggleClass('open');
-        renderPanel();
-    });
-    $('#iw-close-panel').off('click').on('click', () => $(`#${PANEL_ID}`).removeClass('open'));
-    $('#iw-panel-backdrop').off('click').on('click', () => $(`#${PANEL_ID}`).removeClass('open'));
-    $('[data-iw-setting]').off('change input').on('change input', function () {
-        const key = String($(this).data('iw-setting'));
-        const value = this.type === 'checkbox' ? this.checked : this.type === 'number' ? Number(this.value) : this.value;
-        updateSetting(key, value);
-        applyTheme();
-        syncSettingsUi();
-        injectState();
-    });
 }
 
 function syncSettingsUi() {
     const s = settings();
-    $('[data-iw-setting]').each(function () {
-        const key = String($(this).data('iw-setting'));
-        if (this.type === 'checkbox') this.checked = Boolean(s[key]);
-        else $(this).val(s[key]);
-    });
-    $('#iw-floating-button').toggle(Boolean(s.showFloatingButton));
-    applyTheme();
-}
-
-async function onChatChanged() {
-    getState();
-    injectState();
-    renderPanel();
-}
-
-async function onMessageChanged() {
-    const state = getState();
-    state.meta.lastProcessedSignature = '';
-    injectState(state);
-    renderPanel();
-}
-
-globalThis.immersiveWorldsGenerationInterceptor = async function (chat) {
-    try {
-        const state = getState();
-        injectState(state);
-        if (!settings().enabled || !settings().autoDirector) return;
-        const last = chat?.[chat.length - 1];
-        if (!last?.is_user) return;
-        // SillyTavern AWAITS every generation interceptor before building the
-        // reply (script.js: runGenerationInterceptors). The director must never
-        // block the character, so run it detached: the busy flag prevents
-        // overlapping passes and errors are contained inside runDirector.
-        runDirector(chat || [], false).catch(error => {
-            console.error('[Immersive Worlds] Director pass failed', error);
-        });
-    } catch (error) {
-        console.error('[Immersive Worlds] Interceptor error', error);
+    for (const el of document.querySelectorAll('[data-iw-setting]')) {
+        const v = s[el.dataset.iwSetting];
+        if (el.type === 'checkbox') el.checked = Boolean(v);
+        else el.value = String(v);
     }
-};
+}
+
+function onSettingChange(el) {
+    const s = settings();
+    const key = el.dataset.iwSetting;
+    s[key] = el.type === 'checkbox' ? el.checked : el.dataset.type === 'number' ? Number(el.value) : el.value;
+    ctx().saveSettingsDebounced();
+    syncSettingsUi();
+    inject();
+    refresh();
+}
+
+function bindUi() {
+    document.addEventListener('click', e => {
+        const open = e.target.closest('[data-iw-open]');
+        if (open) return openWorldPanel(open.dataset.iwOpen || activeTab);
+        const act = e.target.closest('#iw-panel [data-iw], .imx-dialog [data-iw]');
+        if (act?.dataset.iw && !act.classList.contains('disabled')) onAction(act.dataset.iw, act);
+    });
+    document.addEventListener('change', e => {
+        if (e.target.matches?.('[data-iw-setting]')) onSettingChange(e.target);
+        if (e.target.id === 'iw-import-file') { importWorld(e.target.files?.[0]); e.target.value = ''; }
+    });
+}
+
+async function mountSettings() {
+    const html = await ctx().renderExtensionTemplateAsync(`third-party/${FOLDER}`, 'settings');
+    (document.getElementById('extensions_settings2') || document.getElementById('extensions_settings'))?.insertAdjacentHTML('beforeend', html);
+    document.getElementById('iw-open-panel')?.addEventListener('click', () => openWorldPanel());
+    try {
+        ctx().ConnectionManagerRequestService.handleDropdown('#iw-profile', settings().profileId, profile => {
+            settings().profileId = profile?.id ?? '';
+            ctx().saveSettingsDebounced();
+        });
+    } catch {
+        document.getElementById('iw-profile-row')?.remove();
+    }
+    syncSettingsUi();
+}
+
+function registerCommands() {
+    const { SlashCommandParser, SlashCommand, SlashCommandArgument, ARGUMENT_TYPE } = ctx();
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'iw',
+        returns: 'the current scene brief',
+        unnamedArgumentList: [SlashCommandArgument.fromProps({ description: 'open | start | build | update | travel <place> | brief', typeList: [ARGUMENT_TYPE.STRING], isRequired: false })],
+        helpString: 'Immersive Worlds. <code>/iw</code> opens the panel; <code>/iw start</code>, <code>/iw build</code>, <code>/iw update</code>, <code>/iw travel Market</code>, <code>/iw brief</code> (returns the scene brief).',
+        callback: async (_args, value) => {
+            const [cmd, ...rest] = String(value ?? '').trim().split(/\s+/);
+            const arg = rest.join(' ');
+            switch ((cmd || 'open').toLowerCase()) {
+                case 'start': startWorld(); break;
+                case 'build': await buildWorld(); break;
+                case 'update': await onAction('pass', {}); break;
+                case 'travel': return travelTo(arg) || `No known place "${arg}" next to here.`;
+                case 'brief': break;
+                default: openWorldPanel();
+            }
+            return getState() ? sceneBrief(getState()) : '';
+        },
+    }));
+}
+
+function registerMacros() {
+    const c = ctx();
+    const defs = {
+        iwTime: ['Living world time of day (HH:MM)', s => s.clock.time],
+        iwDay: ['Living world day number', s => String(s.clock.day)],
+        iwWeather: ['Living world weather', s => s.clock.weather],
+        iwLocation: ['Current living world location', s => currentLocation(s).name],
+        iwScene: ['Full living world scene brief', s => sceneBrief(s)],
+    };
+    for (const [name, [description, fn]] of Object.entries(defs)) {
+        const handler = () => { const s = getState(); return s ? fn(s) : ''; };
+        try {
+            if (c.macros?.register) c.macros.register(name, { category: TITLE, description, handler });
+            else c.registerMacro?.(name, handler, description);
+        } catch (error) { log('macro', name, error); }
+    }
+}
+
+function onChatChanged() {
+    epoch += 1;
+    queued = null;
+    const md = ctx().chatMetadata;
+    if (md?.[STATE_KEY]) md[STATE_KEY] = normalizeState(md[STATE_KEY]);
+    inject();
+    refresh();
+}
 
 export async function init() {
-    if (initialized) return;
-    initialized = true;
+    const c = ctx();
     settings();
-    await createUi();
-    getState();
-    injectState();
-    eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
-    eventSource.on(event_types.MESSAGE_DELETED, onMessageChanged);
-    eventSource.on(event_types.MESSAGE_UPDATED, onMessageChanged);
-    eventSource.on(event_types.MESSAGE_SWIPED, onMessageChanged);
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, () => renderPanel());
-    console.info('[Immersive Worlds] Living Cities initialized');
+    await mountSettings();
+    bindUi();
+    addWandItem({ id: 'iw-wand', icon: 'fa-compass', label: 'Living World', onClick: () => openWorldPanel() });
+    registerCommands();
+    registerMacros();
+    c.eventSource.on(c.eventTypes.CHAT_CHANGED, onChatChanged);
+    c.eventSource.on(c.eventTypes.MESSAGE_RECEIVED, onMessageReceived);
+    c.eventSource.on(c.eventTypes.MESSAGE_SWIPED, onMessageSwiped);
+    c.eventSource.on(c.eventTypes.MESSAGE_DELETED, onMessageDeleted);
+    onChatChanged();
+    console.info(`[${TITLE}] v${VERSION} ready`);
+    log('settings', structuredClone(settings()));
 }
