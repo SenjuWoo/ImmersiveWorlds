@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.0 — 2026-10-12
+
+The immersion update. Worlds from 2.0 load unchanged.
+
+- Immersion HUD in the empty space beside the chat: scene top-left (place, time, weather, what is happening right now), people top-right (state tags, hover card with body, mind and what they hold), items bottom-left, a map of the places around you bottom-right. In SillyTavern's theme; shrinks on narrow screens, steps aside on phones and when a side drawer is open.
+- Only what your character knows: strangers are "a dock guard" until named; next door is seen through an open way, heard through a door, blank behind a wall; Peek through a door. Setting "What the HUD reveals": only what I sense / everything nearby / everything (secrets too).
+- Arrivals glow and announce themselves; departures show where people went.
+- World logic in code: paths have walking times; moving follows the paths and costs the time (Go on the map, /iw travel, and moves the story implies); people walk to places instead of teleporting; time only jumps when the story sleeps, waits or travels; new items and people appear only where the story is; impossible moves are rejected and logged.
+- Per-person state (restraints, clothing, position, condition, mood, wants, attitude, holding) kept for everyone in the scene, and your character's visible state (never feelings).
+- Character sheets win: the director reads each present person's card or profile and your persona before changing them.
+- The roleplay prompt now carries people's visible state, exits with walking times and what can be heard next door (~590 chars in a typical scene).
+- Open threads only show on the HUD once the story has touched them.
+- Tests: 55.
+
 ## 2.0.0 — 2026-10-11
 
 Rebuilt from the ground up. Old worlds load unchanged (same chat-metadata key); old settings migrate.

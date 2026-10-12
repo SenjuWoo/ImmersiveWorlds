@@ -1,13 +1,18 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-11 · v2.0.0 · branch `main`
+Updated 2026-10-12 · v2.1.0 · branch `main`
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)
 - Sibling extension sharing `kit.js`, `llm.js` and the kit block of `style.css` byte-for-byte: `../ImmersiveAdventures` (private repo). Edit both copies together; `tests/selftest.js` fails if they drift.
-- Last known good: git tag `v2.0.0` / GitHub release zip. Previous line: `v1.3.0` tag (1.5.0 was never tagged).
+- Last known good: git tag `v2.1.0` / GitHub release zip; previous `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
 
-## Verified (2026-10-11)
+## Verified (2026-10-12, 2.1.0)
+- `node tests/selftest.js` 55/55
+- E2E in an isolated SillyTavern 1.19.0 (dev worktree loaded as a user-scoped extension, global copy disabled for the test user; mock model): HUD corners at 1920/1600/1500/1280, hover card, arrival glow + toast, heard room, Peek, Go, two-hop move charged, bogus move rejected, person walking in at ETA, right drawer hides right side, reveal modes, delete rewinds HUD, no unknown names/secrets in default HUD, world note ~590 chars, director ~3,100 chars
+
+## Verified (2026-10-11, 2.0.0)
 - `node tests/selftest.js` 26/26; `node --check` on every file
 - E2E in an isolated SillyTavern 1.19.0 (`--configPath/--dataRoot` + OpenAI-compatible mock): build, director pass, swipe regenerate/browse, delete rewind, forge, card + lorebook, reload, 375 px width, settings drawer
 
@@ -21,5 +26,8 @@ Updated 2026-10-11 · v2.0.0 · branch `main`
 - Background calls: Connection Profile → ChatCompletionService (cloned settings, reasoning off) → generateRaw fallback.
 - Public API for Immersive Adventures: `globalThis.immersiveWorlds { version, isActive, getState, brief, travel }`.
 
-## Next ideas (not started)
-- None required. Possible: per-hour routines, map view.
+## Known limits / next ideas
+- People crossing on the same road do not meet (travel is origin to destination).
+- Immersive Adventures /ia-travel still says "Setting out" when Immersive Worlds refuses a route.
+- The test browser pane fires no real resize events; live window resizing was checked with a synthetic event only.
+- Possible: route/openness editing in the panel, per-hour routines.
