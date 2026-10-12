@@ -135,6 +135,8 @@ export function normalizeState(input) {
         nameKnown: typeof x.nameKnown === 'boolean' ? x.nameKnown : legacy,
         seenTick: int(x.seenTick),
         travel: x.travel && ids.has(slug(x.travel.to, '')) && Number.isFinite(Number(x.travel.eta)) ? { to: slug(x.travel.to, ''), eta: Number(x.travel.eta) } : null,
+        main: typeof x.main === 'boolean' ? x.main : Boolean(x.materializedAvatar), // card characters; everyone else is background
+        hidden: str(x.hidden, 200),
     }));
     s.items = list(s.items).filter(x => typeof x === 'object').map((x, i) => ({
         id: slug(x.id || x.name || `item-${i + 1}`, 'item'),
@@ -168,6 +170,7 @@ export function normalizeState(input) {
         left: list(scene.left).filter(x => x && typeof x === 'object' && x.id).map(x => ({ id: str(x.id, 60), toward: str(x.toward, 60) })).slice(0, 12),
         note: str(scene.note, 300),
         peeked: strList(scene.peeked, 12, 60),
+        moved: scene.moved === true, // the user just chose where to be; the next director pass may not move them
     };
     const here = s.locations.find(l => l.id === s.currentLocationId);
     here.visited = here.discovered = true;
@@ -190,7 +193,7 @@ export function baseWorld(card = {}) {
     const npcs = card.name ? [{
         id: slug(card.name, 'npc'), name: card.name, role: 'Primary character',
         appearance: cleanText(card.description, 500), personality: cleanText(card.personality, 500),
-        relationship: 'Established by the current chat', locationId: loc.id, status: 'present', materializedAvatar: card.avatar || '', known: true, nameKnown: true,
+        relationship: 'Established by the current chat', locationId: loc.id, status: 'present', materializedAvatar: card.avatar || '', known: true, nameKnown: true, main: true,
     }] : [];
     return normalizeState({
         worldName: card.name ? `${card.name}'s World` : 'Living World',
@@ -251,12 +254,16 @@ export function sceneBrief(state) {
     lines.push(atmosphereLine(state));
     const person = n => {
         const role = `${n.role}${['active', 'present'].includes(n.status) ? '' : `, ${n.status}`}${n.nameKnown ? '' : '; name unknown to {{user}}'}`;
+        if (!n.main) return `${n.name} (${role})${n.tags[0] ? ` — ${cleanText(n.tags[0], 40)}` : ''}`;
         const facts = n.tags.length ? n.tags.join(', ') : [n.body.restraints, n.body.wearing, n.body.position].filter(Boolean).join(', ');
         const tail = facts ? cleanText(facts, 90) : n.personality ? cleanText(n.personality, 60) : '';
-        return `${n.name} (${role})${tail ? ` — ${tail}` : ''}`;
+        return `${n.name} (${role})${tail ? ` — ${tail}` : ''}${n.hidden ? ` [unknown to {{user}}: ${cleanText(n.hidden, 120)}]` : ''}`;
     };
-    const present = presentNpcs(state).slice(0, 5);
-    if (present.length) lines.push(`Here: ${present.map(person).join('; ')}`);
+    const present = presentNpcs(state);
+    const main = present.filter(n => n.main).slice(0, 4);
+    const extras = present.filter(n => !n.main).slice(0, 5);
+    if (main.length) lines.push(`Here: ${main.map(person).join('; ')}`);
+    if (extras.length) lines.push(`${main.length ? 'Also here' : 'Here'}: ${extras.map(person).join('; ')}`);
     const you = state.player;
     const yours = [you.body.wearing && `wearing ${you.body.wearing}`, you.body.position, you.body.condition, you.holding.length && `holding ${you.holding.join(', ')}`].filter(Boolean);
     if (yours.length) lines.push(`{{user}}: ${cleanText(yours.join('; '), 160)}`);
@@ -281,21 +288,21 @@ export function buildInjection(state, { strictAgency = true } = {}) {
 export const DIRECTOR_SYSTEM = 'You maintain the hidden world state of an ongoing roleplay. Reply with exactly one JSON object and nothing else: no prose, no code fences.';
 
 const PATCH_CONTRACT = `Return one JSON object containing only what changed (omit unchanged keys):
-{"minutes":scene minutes passed 0-90,"jump":"sleep|wait|travel|montage — only if the exchange skipped time; allows up to 720 minutes","weather":"","ambient":"1-2 concrete sensory sentences for the current scene","now":"1-2 sentences: what is happening right now, as {{user}} knows it","move_to":"id of the place {{user}} ended up in",
+{"minutes":scene minutes passed 0-90,"jump":"sleep|wait|travel|montage if the exchange skipped time (allows 720)","weather":"","ambient":"1-2 sensory sentences","now":"1-2 sentences: what is happening right now, as {{user}} knows it","move_to":"id of the place {{user}} ended up in",
 "you":{"wearing","position","condition","holding":[]},"sounds":{"door exit id":"what {{user}} hears from there"},
 "locations":[{"id","name","type","description","connections":["id"],"routes":{"id":{"minutes":0,"sense":"open|door|none"}}}],
-"npcs":[{"id","name","role","appearance","personality","goals":[],"relationship","locationId","status","nameKnown":true,"routine":{"dawn":"loc id","day":"","dusk":"","night":""},"body":{"restraints","wearing","position","condition"},"mind":{"mood","wants","toward"},"holding":[],"tags":["2-3 short visible facts"]}],
+"npcs":[{"id","name","role","appearance","personality","goals":[],"relationship","locationId","status","nameKnown":true,"routine":{"dawn|day|dusk|night":"loc id"},"body":{"restraints","wearing","position","condition"},"mind":{"mood","wants","toward"},"holding":[],"tags":["2-3 short facts {{user}} noticed"],"hidden":"truth {{user}} cannot perceive"}],
 "items":[{"id","name","type","description","rarity","quantity","ownerId","locationId"}],
-"events":[{"id","name","description","status"}],"quests":[{"id","name","description","status"}],"factions":[{"id","name","description","members":[]}],
+"events"/"quests":[{"id","name","description","status"}],"factions":[{"id","name","description","members":[]}],
 "chronicle":["at most 3 terse continuity facts"]}
 Upsert by id: a known id patches only the fields you send; a new id needs every field and a link (connections+routes, owner/place, locationId and routine). Ids are lowercase-hyphen slugs. status "resolved" or "failed" closes a thread. ownerId "player" = {{user}} carries it.
-body/mind/holding/tags only for people HERE; mind is what {{user}} can read from face, words and behaviour (hidden thoughts go in secrets). nameKnown true once {{user}} has learned the name. you = {{user}}'s visible state from their own words only, never feelings. Sheets win: never contradict a sheet. Everyone moves only along routes (EXITS); locationId is where someone heads.`;
+State fields only for people HERE. People with a SHEETS line are main; others are background: tags only. For main people, body/mind/holding/tags = what {{user}} actually noticed (looked away or covered = not noticed); mind = {{user}}'s read, hedged with "?" (wants: "some time alone?"), never true intent; truth {{user}} can't perceive goes in "hidden" (one line). nameKnown once {{user}} learned the name. you = {{user}}'s visible state from their own words, never feelings. Animals and people are never items (animals go in npcs). move_to only when {{user}}'s own message takes them somewhere, never because the narration placed them. Sheets win: never contradict a sheet. Everyone moves only along routes (EXITS); locationId is where someone heads.`;
 
 function budget(detail) {
     return detail === 'maximum' ? 3 : detail === 'high' ? 2 : 1;
 }
 
-const stateLine = n => [n.tags.join(', '), ...BODY.filter(k => n.body[k]).map(k => `${k} ${n.body[k]}`), ...MIND.filter(k => n.mind[k]).map(k => `${k} ${n.mind[k]}`), n.holding.length ? `holding ${n.holding.join(', ')}` : ''].filter(Boolean).join(' | ');
+const stateLine = n => [n.tags.join(', '), ...BODY.filter(k => n.body[k]).map(k => `${k} ${n.body[k]}`), ...MIND.filter(k => n.mind[k]).map(k => `${k} ${n.mind[k]}`), n.holding.length ? `holding ${n.holding.join(', ')}` : '', n.hidden ? `hidden ${n.hidden}` : ''].filter(Boolean).join(' | ');
 
 /** Director prompt: only the slice of state the patch can touch, plus the new exchange. `sheets` = {npcId|'you': text}. */
 export function directorPrompt(state, transcript, policy = {}, sheets = {}) {
@@ -310,7 +317,7 @@ export function directorPrompt(state, transcript, policy = {}, sheets = {}) {
     const n = budget(policy.detail);
     const allow = [policy.allowNewCharacters !== false && 'people', policy.allowNewItems !== false && 'items', policy.allowNewLocations !== false && 'places'].filter(Boolean);
     const npcLine = x => `${x.id}|${x.name}|${x.role}|${x.travel ? `${x.locationId}→${x.travel.to}` : x.locationId}|${x.status}`;
-    const states = here.map(x => [x.id, stateLine(x)]).filter(([, v]) => v).map(([id, v]) => `STATE ${id}: ${v}`);
+    const states = here.filter(x => x.main).map(x => [x.id, stateLine(x)]).filter(([, v]) => v).map(([id, v]) => `STATE ${id}: ${v}`);
     const you = [...YOU.filter(k => state.player.body[k]).map(k => `${k} ${state.player.body[k]}`), state.player.holding.length ? `holding ${state.player.holding.join(', ')}` : ''].filter(Boolean);
     const sheetLines = [...here.map(x => x.id), 'you'].filter(id => sheets[id]).map(id => `${id}: ${cleanText(sheets[id], 240)}`);
     return [
@@ -414,7 +421,7 @@ function merge(collection, entries, { allowNew = true, defaults = {}, prefix }) 
 }
 
 const pick = (patch, ...keys) => keys.flatMap(k => list(patch[k]));
-const STATE_FIELDS = ['body', 'mind', 'holding', 'tags'];
+const STATE_FIELDS = ['body', 'mind', 'holding', 'tags', 'hidden'];
 const findPlace = (state, ref) => state.locations.find(l => l.id === slug(ref, '') || l.name.toLowerCase() === String(ref ?? '').toLowerCase());
 
 /** Mark a walked path visited; returns nothing. */
@@ -489,7 +496,8 @@ export function applyPatch(state, patch, policy = {}) {
     // The user's move: along the map, never a jump.
     let walked = 0;
     const target = patch.move_to || patch.current_location_id;
-    if (target) {
+    if (target && state.scene.moved) rejected.push(`move_to "${target}": {{user}} chose where to be this turn`);
+    else if (target) {
         const dest = findPlace(state, target);
         const route = dest && dest.id !== start ? shortestPath(state, start, dest.id) : null;
         if (!dest) rejected.push(`move_to "${target}": unknown place`);
@@ -500,6 +508,7 @@ export function applyPatch(state, patch, policy = {}) {
             state.currentLocationId = dest.id;
             state.scene.ambient = '';
             state.scene.now = '';
+            state.player.body.position = ''; // belonged to the old place
         }
     }
 
@@ -513,10 +522,12 @@ export function applyPatch(state, patch, policy = {}) {
     for (const [e, extra] of later) {
         const n = state.npcs.find(x => x.id === slug(e.id || e.name, 'npc') || (e.name && x.name.toLowerCase() === String(e.name).toLowerCase()));
         if (!n || !here.has(n.id)) continue;
+        if ('tags' in extra) n.tags = strList(extra.tags, 3, 40);
+        if (!n.main) continue; // background people: tags only
+        if ('hidden' in extra) n.hidden = str(extra.hidden, 200);
         if (extra.body) n.body = { ...n.body, ...fields(extra.body, BODY.filter(k => k in extra.body), 120) };
         if (extra.mind) n.mind = { ...n.mind, ...fields(extra.mind, MIND.filter(k => k in extra.mind), 120) };
         if ('holding' in extra) n.holding = strList(extra.holding, 6, 80);
-        if ('tags' in extra) n.tags = strList(extra.tags, 3, 40);
     }
     for (const n of state.npcs) if (here.has(n.id)) n.lastSeen = stamp;
     if (patch.you && typeof patch.you === 'object') {
@@ -541,6 +552,7 @@ export function applyPatch(state, patch, policy = {}) {
         return { id, toward: n?.travel?.to || (n && n.locationId !== state.currentLocationId ? n.locationId : '') };
     });
     state.scene.peeked = [];
+    state.scene.moved = false;
     state.scene.note = '';
     state.meta.rejected = rejected;
 
@@ -575,7 +587,8 @@ export function travel(state, idOrName) {
     const from = currentLocation(state);
     walk(state, route.path);
     state.currentLocationId = dest.id;
-    Object.assign(state.scene, { ambient: '', now: '', arrived: [], left: [], peeked: [], note: `{{user}} went to ${dest.name} (${route.minutes} min).` });
+    Object.assign(state.scene, { ambient: '', now: '', arrived: [], left: [], peeked: [], moved: true, note: `{{user}} has just walked to ${dest.name} (${route.minutes} min) and is now there.` });
+    state.player.body.position = '';
     passTime(state, route.minutes);
     const line = `Travelled from ${from?.name || 'somewhere'} to ${dest.name} (${route.minutes} min).`;
     state.chronicle.push({ at: nowIso(), text: line });

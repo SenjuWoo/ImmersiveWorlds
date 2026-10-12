@@ -114,3 +114,18 @@ export function tickTravel(state) {
     }
     return arrived;
 }
+
+// Comings and goings worth a world update now, whatever the "run every" cadence says.
+const MOVES = /\b(leaves?|left (?:the|for|to|through|without)|arriv(?:e|es|ed|ing)|enters?|entered|returns?|returned|follows?|followed|(?:walks?|walked|runs?|ran|heads?|headed|goes|went|comes?|came|steps?|stepped|storms?|stormed) (?:away|off|out|in|inside|outside|over|back|to|toward|towards|into))\b/i;
+const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Does this text move anyone: a coming-or-going phrase, or another known place named? */
+export function movementHint(state, text) {
+    const t = String(text ?? '');
+    if (MOVES.test(t)) return true;
+    return state.locations.some(l => {
+        if (l.id === state.currentLocationId) return false;
+        const name = String(l.name || '').replace(/^the\s+/i, '').trim();
+        return name.length >= 3 && new RegExp(`\\b${escapeRe(name)}\\b`, 'i').test(t);
+    });
+}

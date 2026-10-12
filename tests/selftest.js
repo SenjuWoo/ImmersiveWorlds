@@ -7,7 +7,7 @@ import {
 } from '../engine.js';
 import { parseJson, isRejection, errorText } from '../llm.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
-import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel } from '../rules.js';
+import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
 
 const tests = [];
 const t = (name, fn) => tests.push([name, fn]);
@@ -22,7 +22,7 @@ function world() {
             { id: 'temple', name: 'Old Temple', type: 'shrine', connections: ['docks'] },
         ],
         npcs: [
-            { id: 'mara', name: 'Mara', role: 'fishmonger', locationId: 'market', personality: 'Sharp-tongued', routine: { dawn: 'docks', day: 'market', dusk: 'market', night: 'temple' } },
+            { id: 'mara', name: 'Mara', role: 'fishmonger', locationId: 'market', main: true, personality: 'Sharp-tongued', routine: { dawn: 'docks', day: 'market', dusk: 'market', night: 'temple' } },
             { id: 'tom', name: 'Old Tom', role: 'beggar', locationId: 'docks' },
         ],
         items: [{ id: 'key', name: 'Rusty Key', locationId: 'market' }],
@@ -314,7 +314,7 @@ t('v2 world migrates to v3 silently', () => {
     assert.deepEqual(x.body, { restraints: '', wearing: '', position: '', condition: '' });
     assert.deepEqual(x.mind, { mood: '', wants: '', toward: '' });
     assert.deepEqual([x.holding, x.tags, x.travel], [[], [], null]);
-    assert.deepEqual(s.scene, { ambient: '', now: '', arrived: [], left: [], note: '', peeked: [] });
+    assert.deepEqual(s.scene, { ambient: '', now: '', arrived: [], left: [], note: '', peeked: [], moved: false });
     assert.deepEqual(s.player.holding, []);
     assert.deepEqual(s.meta.rejected, []);
 });
@@ -415,7 +415,7 @@ function flat() {
             { id: 'attic', name: 'Attic', type: 'attic', discovered: false },
         ],
         npcs: [
-            { id: 'fern', name: 'Fern', role: 'ranger', locationId: 'living', known: true, nameKnown: true, tags: ['cuffed', 'humiliated'], body: { restraints: 'cuffed behind her back', wearing: 'a sheet' }, mind: { mood: 'flat-faced' }, secrets: ['she set this up'] },
+            { id: 'fern', name: 'Fern', role: 'ranger', locationId: 'living', main: true, known: true, nameKnown: true, tags: ['cuffed', 'humiliated'], body: { restraints: 'cuffed behind her back', wearing: 'a sheet' }, mind: { mood: 'flat-faced' }, secrets: ['she set this up'] },
             { id: 'guard', name: 'Hal', role: 'dock guard', locationId: 'living' },
             { id: 'cook', name: 'Marta', role: 'cook', locationId: 'kitchen' },
             { id: 'kid', name: 'Pip', role: 'courier', locationId: 'kitchen' },
@@ -452,13 +452,13 @@ t('nearby and all modes widen the view', () => {
     assert.equal(perceive(flat(), 'nearby').around.find(a => a.id === 'garden').seen, true, 'nearby mode sees into it');
     const all = perceive(flat(), 'all');
     assert.deepEqual(all.around.find(a => a.id === 'kitchen').people, ['Marta', 'Pip']);
-    assert.deepEqual(all.people.find(p => p.id === 'fern').secrets, ['she set this up']);
+    assert.deepEqual(all.people.find(p => p.id === 'fern').truth, ['she set this up']);
 });
 
 t('unnamed people are labelled by role, never by name, in senses mode', () => {
     const v = perceive(flat(), 'senses', { userName: 'Alex' });
-    assert.deepEqual(v.people.map(p => p.label), ['Fern', 'a dock guard', 'Alex']);
-    assert.ok(v.people.at(-1).isYou);
+    assert.deepEqual(v.people.map(p => p.label), ['Fern', 'Alex', 'a dock guard']);
+    assert.ok(v.people[1].isYou);
     assert.deepEqual(v.left, [{ label: 'a gardener', toward: 'Garden' }]);
     assert.ok(!/\bHal\b|Old Sam/.test(JSON.stringify(v)), 'no unspoken names anywhere');
     assert.equal(labelOf({ name: 'X', role: '' }, 'senses'), 'a stranger');
@@ -544,6 +544,88 @@ t('threads stay off the HUD until the story touches them', () => {
     const n = applyPatch(s, { quests: [{ name: 'A new lead' }, { name: 'The ferryman stole the fund', status: 'active' }] });
     assert.deepEqual(perceive(n, 'senses').scene.threads, ['Smoke on the hill', 'The ferryman stole the fund', 'A new lead']);
     assert.ok(normalizeState({ quests: ['Old v2 quest'] }).quests[0].known, 'v2 threads were already shown');
+});
+
+// ---- 2.2: main vs background people, perception layer, agency over moves ----
+t('card characters are main; everyone else is background', () => {
+    const s = normalizeState({ version: 3, locations: [{ id: 'a', name: 'A' }], npcs: [{ name: 'Card', materializedAvatar: 'card.png' }, { name: 'Extra' }, { name: 'Flagged', main: true }] });
+    assert.deepEqual(s.npcs.map(n => n.main), [true, false, true]);
+    assert.equal(baseWorld({ name: 'Iris', avatar: 'iris.png' }).npcs[0].main, true);
+});
+
+t('background people take tags only; main people take state and a hidden truth', () => {
+    const w = world();
+    w.npcs.find(n => n.id === 'mara').main = true;
+    w.npcs.push({ id: 'kid', name: 'Kid', role: 'urchin', locationId: 'market' });
+    const s = applyPatch(normalizeState(w), { npcs: [
+        { id: 'mara', tags: ['smiling'], body: { wearing: 'apron' }, mind: { wants: 'a sale?' }, hidden: 'is skimming the guild tithe' },
+        { id: 'kid', tags: ['begging', 'barefoot'], body: { wearing: 'rags' }, mind: { mood: 'sly' }, holding: ['coin'], hidden: 'a pickpocket' },
+    ] });
+    const by = id => s.npcs.find(n => n.id === id);
+    assert.deepEqual([by('mara').body.wearing, by('mara').mind.wants, by('mara').hidden], ['apron', 'a sale?', 'is skimming the guild tithe']);
+    assert.deepEqual(by('kid').tags, ['begging', 'barefoot']);
+    assert.deepEqual([by('kid').body.wearing, by('kid').mind.mood, by('kid').holding, by('kid').hidden], ['', '', [], '']);
+});
+
+t('the director cannot move the user right after they chose where to go', () => {
+    const s = world();
+    travel(s, 'Docks');
+    assert.ok(s.scene.moved);
+    const n = applyPatch(s, { move_to: 'market', minutes: 5 });
+    assert.equal(n.currentLocationId, 'docks');
+    assert.match(n.meta.rejected.join(' '), /chose/);
+    assert.equal(n.scene.moved, false, 'the guard lasts one pass');
+    assert.equal(applyPatch(n, { move_to: 'market' }).currentLocationId, 'market');
+});
+
+t('moving clears the user position that belonged to the old place', () => {
+    const s = world();
+    s.player.body.position = 'standing by the packs';
+    travel(s, 'Docks');
+    assert.equal(s.player.body.position, '');
+    assert.match(s.scene.note, /has just walked to Docks .*and is now there/);
+    const t2 = world();
+    t2.player.body.position = 'by the stall';
+    assert.equal(applyPatch(t2, { move_to: 'docks' }).player.body.position, '');
+    assert.equal(applyPatch(world(), { move_to: 'docks', you: { position: 'on the pier' } }).player.body.position, 'on the pier');
+});
+
+t('movementHint spots places and comings and goings', () => {
+    const s = world();
+    assert.ok(movementHint(s, "I'll be at the docks. Ten minutes."));
+    assert.ok(movementHint(s, 'She walks away without a word.'));
+    assert.ok(movementHint(s, 'Old Tom arrives, dripping.'));
+    assert.ok(!movementHint(s, 'She smiles and keeps working the stall.'));
+    assert.ok(!movementHint(s, 'The market square is loud today.'), 'the current place is not a destination');
+});
+
+t('the HUD shows background people bare and keeps truth for the all mode', () => {
+    const s = flat();
+    s.npcs.find(n => n.id === 'fern').hidden = 'she set this up herself';
+    const v = perceive(s, 'senses', { userName: 'Alex' });
+    assert.deepEqual(v.people.map(p => [p.label, p.main]), [['Fern', true], ['Alex', true], ['a dock guard', false]]);
+    const guard = v.people.find(p => p.id === 'guard');
+    assert.deepEqual([guard.body, guard.mind, guard.holding, guard.avatar], [[], [], [], '']);
+    assert.equal(v.people[0].truth, undefined);
+    assert.deepEqual(perceive(s, 'all').people[0].truth, ['she set this up herself', 'she set this up']);
+});
+
+t('brief: main people carry their hidden truth, background people one compact line', () => {
+    const s = flat();
+    s.npcs.find(n => n.id === 'fern').hidden = 'still tied under the sheet';
+    const b = sceneBrief(s);
+    assert.match(b, /Here: Fern \(ranger\) — cuffed, humiliated \[unknown to \{\{user\}\}: still tied under the sheet\]/);
+    assert.match(b, /Also here: Hal \(dock guard; name unknown to \{\{user\}\}\)/);
+});
+
+t('director: state lines only for main people; contract covers perception and agency', () => {
+    const s = flat();
+    s.npcs.find(n => n.id === 'guard').tags = ['yawning'];
+    const p = directorPrompt(s, 'Alex: hi', {}, { fern: 'Fern sheet' });
+    assert.ok(p.includes('STATE fern:'));
+    assert.ok(!p.includes('STATE guard'), 'background people get no state line');
+    for (const x of ['"hidden"', 'background', 'what {{user}} actually noticed', 'some time alone?', 'Animals and people are never items', "only when {{user}}'s own message"]) assert.ok(p.includes(x), x);
+    assert.ok(p.length < 3600, `director prompt is ${p.length} chars`);
 });
 
 let failed = 0;

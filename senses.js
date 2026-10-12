@@ -54,24 +54,33 @@ export function perceive(state, mode = 'senses', { userName = '' } = {}) {
         return loc && (loc.discovered || all) ? loc.name : '';
     };
 
-    const people = present.map(n => ({
-        id: n.id,
-        label: labelOf(n, mode),
-        tags: n.tags,
-        body: pairs(n.body, BODY),
-        mind: pairs(n.mind, MIND),
-        holding: n.holding,
-        avatar: n.materializedAvatar,
-        isNew: state.scene.arrived.includes(n.id),
-        isYou: false,
-        ...(all && n.secrets.length ? { secrets: n.secrets } : {}),
-    }));
+    // Main characters (cards) in full; background people are a name and a few tags, no portrait unless they have one.
+    const row = n => {
+        const truth = all ? [n.hidden, ...n.secrets].filter(Boolean) : [];
+        return {
+            id: n.id,
+            label: labelOf(n, mode),
+            main: n.main,
+            tags: n.tags,
+            body: n.main ? pairs(n.body, BODY) : [],
+            mind: n.main ? pairs(n.mind, MIND) : [],
+            holding: n.main ? n.holding : [],
+            avatar: n.materializedAvatar,
+            isNew: state.scene.arrived.includes(n.id),
+            isYou: false,
+            ...(truth.length ? { truth } : {}),
+        };
+    };
     const you = state.player;
-    people.push({
-        id: 'you', label: userName || 'You', isYou: true, isNew: false, avatar: '',
-        tags: [you.body.position, ...you.holding.map(h => `holding ${h}`)].filter(Boolean).slice(0, 3),
-        body: pairs(you.body, YOU), mind: [], holding: you.holding,
-    });
+    const people = [
+        ...present.filter(n => n.main).map(row),
+        {
+            id: 'you', label: userName || 'You', main: true, isYou: true, isNew: false, avatar: '',
+            tags: [you.body.position, ...you.holding.map(h => `holding ${h}`)].filter(Boolean).slice(0, 3),
+            body: pairs(you.body, YOU), mind: [], holding: you.holding,
+        },
+        ...present.filter(n => !n.main).map(row),
+    ];
 
     const left = state.scene.left.map(({ id, toward }) => {
         const n = state.npcs.find(x => x.id === id);
