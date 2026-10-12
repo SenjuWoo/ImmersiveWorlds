@@ -268,13 +268,16 @@ async function runDirector(index, { manual = false } = {}) {
 function onMessageReceived(index, type) {
     const s = settings();
     const state = getState();
-    if (!s.enabled || !s.autoDirector || !state || ['first_message', 'impersonate', 'quiet'].includes(type)) return;
+    if (!s.enabled || !state || ['first_message', 'impersonate', 'quiet'].includes(type)) return;
     const msg = ctx().chat?.[index];
     if (!msg || msg.is_user || msg.is_system) return;
+    // A Go/Peek note is for one reply; a director pass clears it too, but it may not run this turn.
+    const spendNote = () => { if (state.scene.note) { state.scene.note = ''; inject(); } };
+    if (!s.autoDirector) { spendNote(); return ctx().saveMetadataDebounced(); }
     if (ctx().chatMetadata[TURN_KEY]?.index === index) return queueDirector(index);
     state.meta.pending += 1;
     if (state.meta.pending >= Math.max(1, Number(s.directorEvery) || 1)) queueDirector(index);
-    else ctx().saveMetadataDebounced();
+    else { spendNote(); ctx().saveMetadataDebounced(); }
 }
 
 function onMessageSwiped(index) {
