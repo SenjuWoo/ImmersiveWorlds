@@ -209,16 +209,19 @@ t('manifest version matches index.js', () => {
 });
 
 t('shared kit files are identical to the copy in Immersive Adventures (when checked out side by side)', () => {
+    const read = url => readFileSync(url, 'utf8').split('
+').join('
+'); // git autocrlf may differ per checkout
     const sibling = new URL('../../ImmersiveAdventures/', import.meta.url);
     for (const f of ['kit.js', 'llm.js']) {
         let other;
-        try { other = readFileSync(new URL(f, sibling), 'utf8'); } catch { return; }
-        assert.equal(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8'), other, f);
+        try { other = read(new URL(f, sibling)); } catch { return; }
+        assert.equal(read(new URL(`../${f}`, import.meta.url)), other, f);
     }
     const kit = css => css.slice(0, css.indexOf('/* ==== end of shared kit ==== */'));
     let otherCss;
-    try { otherCss = readFileSync(new URL('style.css', sibling), 'utf8'); } catch { return; }
-    assert.equal(kit(readFileSync(new URL('../style.css', import.meta.url), 'utf8')), kit(otherCss), 'style.css kit block');
+    try { otherCss = read(new URL('style.css', sibling)); } catch { return; }
+    assert.equal(kit(read(new URL('../style.css', import.meta.url))), kit(otherCss), 'style.css kit block');
 });
 
 // ---- rules.js: routes, paths, clock, travel ----
