@@ -6,6 +6,7 @@ import {
     cleanText, transcriptOf, timeSlot, advanceClock, currentLocation, presentNpcs, isOpen, slug,
 } from '../engine.js';
 import { parseJson, isRejection, errorText } from '../llm.js';
+import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel } from '../rules.js';
 
 const tests = [];
@@ -399,6 +400,103 @@ t('travel refuses without a route and charges route time', () => {
     assert.equal(s.clock.time, '08:40');
     assert.match(s.scene.note, /Docks/);
     assert.ok(s.locations.find(l => l.id === 'docks').visited);
+});
+
+// ---- senses.js: what the user's character perceives ----
+function flat() {
+    return normalizeState({
+        version: 3, worldName: 'Flat', clock: { day: 2, time: '07:44', weather: 'fog' }, currentLocationId: 'living',
+        locations: [
+            { id: 'living', name: 'Living Room', type: 'living room', connections: ['kitchen', 'hall', 'garden'], routes: { kitchen: { minutes: 1, sense: 'door' }, hall: { minutes: 1, sense: 'open' }, garden: { minutes: 2, sense: 'none' } } },
+            { id: 'kitchen', name: 'Kitchen', type: 'kitchen' },
+            { id: 'hall', name: 'Hall', type: 'hallway', connections: ['attic'] },
+            { id: 'garden', name: 'Garden', type: 'garden' },
+            { id: 'attic', name: 'Attic', type: 'attic', discovered: false },
+        ],
+        npcs: [
+            { id: 'fern', name: 'Fern', role: 'ranger', locationId: 'living', known: true, nameKnown: true, tags: ['cuffed', 'humiliated'], body: { restraints: 'cuffed behind her back', wearing: 'a sheet' }, mind: { mood: 'flat-faced' }, secrets: ['she set this up'] },
+            { id: 'guard', name: 'Hal', role: 'dock guard', locationId: 'living' },
+            { id: 'cook', name: 'Marta', role: 'cook', locationId: 'kitchen' },
+            { id: 'kid', name: 'Pip', role: 'courier', locationId: 'kitchen' },
+            { id: 'butler', name: 'Jeeves', role: 'butler', locationId: 'hall' },
+            { id: 'gardener', name: 'Old Sam', role: 'gardener', locationId: 'garden' },
+        ],
+        items: [{ id: 'key', name: 'Cuff key', type: 'key', ownerId: 'player' }, { id: 'bag', name: 'Saddlebag', type: 'bag', locationId: 'living' }, { id: 'bow', name: 'Bow', type: 'weapon', ownerId: 'fern' }],
+        player: { holding: ['Cuff key'] },
+        scene: { now: 'Fern is stuck.', left: [{ id: 'gardener', toward: 'garden' }] },
+    });
+}
+
+t('door neighbours are heard, not seen', () => {
+    const v = perceive(flat(), 'senses');
+    const k = v.around.find(a => a.id === 'kitchen');
+    assert.deepEqual([k.people, k.sound, k.sense, k.minutes], [[], 'voices', 'door', 1]);
+    const s = flat();
+    s.locations.find(l => l.id === 'kitchen').sound = 'pans clattering';
+    s.locations.find(l => l.id === 'kitchen').soundTick = s.meta.tick;
+    assert.equal(perceive(s, 'senses').around.find(a => a.id === 'kitchen').sound, 'pans clattering');
+});
+
+t('open neighbours are seen; walls give nothing; unknown places are not drawn', () => {
+    const v = perceive(flat(), 'senses');
+    assert.deepEqual(v.around.find(a => a.id === 'hall').people, ['a butler']);
+    const g = v.around.find(a => a.id === 'garden');
+    assert.deepEqual([g.people, g.sound], [[], '']);
+    assert.ok(!v.around.some(a => a.id === 'attic'));
+});
+
+t('nearby and all modes widen the view', () => {
+    assert.deepEqual(perceive(flat(), 'nearby').around.find(a => a.id === 'kitchen').people, ['a cook', 'a courier']);
+    const all = perceive(flat(), 'all');
+    assert.deepEqual(all.around.find(a => a.id === 'kitchen').people, ['Marta', 'Pip']);
+    assert.deepEqual(all.people.find(p => p.id === 'fern').secrets, ['she set this up']);
+});
+
+t('unnamed people are labelled by role, never by name, in senses mode', () => {
+    const v = perceive(flat(), 'senses', { userName: 'Alex' });
+    assert.deepEqual(v.people.map(p => p.label), ['Fern', 'a dock guard', 'Alex']);
+    assert.ok(v.people.at(-1).isYou);
+    assert.deepEqual(v.left, [{ label: 'a gardener', toward: 'Garden' }]);
+    assert.ok(!/\bHal\b|Old Sam/.test(JSON.stringify(v)), 'no unspoken names anywhere');
+    assert.equal(labelOf({ name: 'X', role: '' }, 'senses'), 'a stranger');
+    assert.equal(withArticle('envoy'), 'an envoy');
+});
+
+t('secrets only in all mode; state and items are shaped for the HUD', () => {
+    const v = perceive(flat(), 'senses');
+    const fern = v.people.find(p => p.id === 'fern');
+    assert.equal(fern.secrets, undefined);
+    assert.deepEqual(fern.body, [['Restraints', 'cuffed behind her back'], ['Wearing', 'a sheet']]);
+    assert.deepEqual(fern.mind, [['Mood', 'flat-faced']]);
+    assert.deepEqual(v.items.mine, [{ id: 'key', name: 'Cuff key', type: 'key', where: 'in your hand' }]);
+    assert.deepEqual(v.items.here.map(i => [i.name, i.where]), [['Saddlebag', 'here'], ['Bow', 'with Fern']]);
+    assert.deepEqual([v.scene.place, v.scene.kicker, v.scene.now], ['Living Room', 'Day 2 · Dawn', 'Fern is stuck.']);
+});
+
+t('markPerceived knows who is here and who is in plain sight', () => {
+    const s = flat();
+    markPerceived(s);
+    const by = id => s.npcs.find(n => n.id === id);
+    assert.ok(by('guard').known && !by('guard').nameKnown);
+    assert.ok(by('butler').known, 'open hall');
+    assert.ok(!by('cook').known, 'behind a door');
+    assert.equal(by('guard').seenTick, s.meta.tick);
+});
+
+t('peek reveals a door room and costs a minute', () => {
+    const s = flat();
+    assert.equal(peek(s, 'garden'), '', 'a wall cannot be peeked through');
+    assert.match(peek(s, 'kitchen'), /Kitchen/);
+    assert.equal(s.clock.time, '07:45');
+    assert.ok(s.npcs.find(n => n.id === 'cook').known);
+    assert.deepEqual(perceive(s, 'senses').around.find(a => a.id === 'kitchen').people, ['a cook', 'a courier']);
+    assert.match(s.scene.note, /peeks into Kitchen/);
+});
+
+t('a single-location world perceives without throwing', () => {
+    const v = perceive(baseWorld({ name: 'Iris' }), 'senses', { userName: 'Alex' });
+    assert.deepEqual(v.around, []);
+    assert.deepEqual(v.people.map(p => p.label), ['Iris', 'Alex']);
 });
 
 let failed = 0;
