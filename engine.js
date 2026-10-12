@@ -1,9 +1,10 @@
 // Pure living-world engine: schema, scene brief, director contract, patch application.
 // No SillyTavern imports, so tests run it under plain node.
+import { normalizeRoutes, shortestPath, capMinutes, sendNpc, tickTravel } from './rules.js';
 
 export const STATE_KEY = 'immersive_worlds_state_v1';
 export const TURN_KEY = 'immersive_worlds_turn_v1';
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 3;
 export const SLOTS = ['dawn', 'day', 'dusk', 'night'];
 const MAX_CHRONICLE = 40;
 const DONE = new Set(['resolved', 'complete', 'completed', 'failed', 'ended', 'closed', 'abandoned', 'finished']);
@@ -43,6 +44,11 @@ export function cleanText(value, max = 800) {
 const str = (v, max) => String(v ?? '').trim().slice(0, max);
 const list = v => (Array.isArray(v) ? v : []).filter(x => x !== null && x !== undefined && x !== '');
 const strList = (v, max, len) => list(v).map(x => str(typeof x === 'object' ? (x.name ?? x.text ?? '') : x, len)).filter(Boolean).slice(0, max);
+const fields = (o, keys, max) => Object.fromEntries(keys.map(k => [k, str(o?.[k], max)]));
+export const BODY = ['restraints', 'wearing', 'position', 'condition'];
+export const MIND = ['mood', 'wants', 'toward'];
+export const YOU = ['wearing', 'position', 'condition'];
+const int = v => Math.max(0, Math.floor(Number(v)) || 0);
 export const isOpen = thread => !DONE.has(String(thread?.status || '').toLowerCase());
 
 function normRoutine(r) {
@@ -71,6 +77,7 @@ function baseLocation(name = 'The Current Scene', description = 'The place where
 /** Coerce anything (old saves, imports, model output) into a valid state. Mutates and returns it. */
 export function normalizeState(input) {
     const s = input && typeof input === 'object' ? input : {};
+    const legacy = (Number(s.version) || 0) < 3; // people a v2 panel already showed by name stay known
     s.version = STATE_VERSION;
     s.worldName = str(s.worldName, 120) || 'Living World';
     s.premise = str(s.premise, 4000);
@@ -91,11 +98,16 @@ export function normalizeState(input) {
         description: str(x.description, 1600),
         connections: [...new Set(strList(x.connections, 20, 120).map(v => slug(v, 'location')))],
         discovered: x.discovered !== false,
+        visited: x.visited === true,
+        routes: Object.fromEntries(Object.entries(x.routes && typeof x.routes === 'object' && !Array.isArray(x.routes) ? x.routes : {}).map(([k, v]) => [slug(k, 'location'), v])),
+        sound: str(x.sound, 200),
+        soundTick: int(x.soundTick),
         danger: str(x.danger, 80) || 'unknown',
     }));
     if (!s.locations.length) s.locations.push(baseLocation());
     const ids = new Set(s.locations.map(l => l.id));
     for (const l of s.locations) l.connections = l.connections.filter(c => c !== l.id && ids.has(c));
+    normalizeRoutes(s.locations);
     s.currentLocationId = slug(s.currentLocationId || s.locations[0].id, 'location');
     if (!ids.has(s.currentLocationId)) s.currentLocationId = s.locations[0].id;
     s.npcs = list(s.npcs).filter(x => typeof x === 'object').map((x, i) => ({
@@ -114,6 +126,14 @@ export function normalizeState(input) {
         firstSeen: x.firstSeen || nowIso(),
         lastSeen: x.lastSeen || nowIso(),
         materializedAvatar: str(x.materializedAvatar, 300),
+        body: fields(x.body, BODY, 120),
+        mind: fields(x.mind, MIND, 120),
+        holding: strList(x.holding, 6, 80),
+        tags: strList(x.tags, 3, 40),
+        known: typeof x.known === 'boolean' ? x.known : legacy,
+        nameKnown: typeof x.nameKnown === 'boolean' ? x.nameKnown : legacy,
+        seenTick: int(x.seenTick),
+        travel: x.travel && ids.has(slug(x.travel.to, '')) && Number.isFinite(Number(x.travel.eta)) ? { to: slug(x.travel.to, ''), eta: Number(x.travel.eta) } : null,
     }));
     s.items = list(s.items).filter(x => typeof x === 'object').map((x, i) => ({
         id: slug(x.id || x.name || `item-${i + 1}`, 'item'),
@@ -134,10 +154,22 @@ export function normalizeState(input) {
         currency: Number(player.currency) || 0,
         reputation: player.reputation && typeof player.reputation === 'object' ? player.reputation : {},
         inventoryIds: strList(player.inventoryIds, 200, 60).map(v => slug(v, 'item')),
+        body: fields(player.body, YOU, 120),
+        holding: strList(player.holding, 6, 80),
     };
     s.chronicle = list(s.chronicle).map(x => (typeof x === 'string' ? { at: nowIso(), text: x } : x))
         .filter(x => x && x.text).map(x => ({ at: str(x.at, 40) || nowIso(), text: str(x.text, 700) })).slice(-MAX_CHRONICLE);
-    s.scene = { ambient: str(s.scene?.ambient, 500) };
+    const scene = s.scene && typeof s.scene === 'object' ? s.scene : {};
+    s.scene = {
+        ambient: str(scene.ambient, 500),
+        now: str(scene.now, 400),
+        arrived: strList(scene.arrived, 12, 60),
+        left: list(scene.left).filter(x => x && typeof x === 'object' && x.id).map(x => ({ id: str(x.id, 60), toward: str(x.toward, 60) })).slice(0, 12),
+        note: str(scene.note, 300),
+        peeked: strList(scene.peeked, 12, 60),
+    };
+    const here = s.locations.find(l => l.id === s.currentLocationId);
+    here.visited = here.discovered = true;
     const meta = s.meta && typeof s.meta === 'object' ? s.meta : {};
     s.meta = {
         createdAt: meta.createdAt || nowIso(),
@@ -146,6 +178,7 @@ export function normalizeState(input) {
         bootstrapped: Boolean(meta.bootstrapped),
         lastIndex: Number.isInteger(meta.lastIndex) ? meta.lastIndex : -1,
         pending: Math.max(0, Math.floor(Number(meta.pending)) || 0),
+        rejected: strList(meta.rejected, 10, 200),
     };
     return s;
 }
@@ -156,7 +189,7 @@ export function baseWorld(card = {}) {
     const npcs = card.name ? [{
         id: slug(card.name, 'npc'), name: card.name, role: 'Primary character',
         appearance: cleanText(card.description, 500), personality: cleanText(card.personality, 500),
-        relationship: 'Established by the current chat', locationId: loc.id, status: 'present', materializedAvatar: card.avatar || '',
+        relationship: 'Established by the current chat', locationId: loc.id, status: 'present', materializedAvatar: card.avatar || '', known: true, nameKnown: true,
     }] : [];
     return normalizeState({
         worldName: card.name ? `${card.name}'s World` : 'Living World',
@@ -170,7 +203,7 @@ export function baseWorld(card = {}) {
 }
 
 export const currentLocation = state => state.locations.find(l => l.id === state.currentLocationId) || state.locations[0];
-export const presentNpcs = state => state.npcs.filter(n => n.locationId === state.currentLocationId && n.status !== 'dead');
+export const presentNpcs = state => state.npcs.filter(n => n.locationId === state.currentLocationId && n.status !== 'dead' && !n.travel);
 
 export function timeSlot(state) {
     const hour = Number(String(state.clock?.time || '12:00').split(':')[0]);
@@ -304,7 +337,7 @@ export function advanceClock(clock, minutes) {
     return amount;
 }
 
-/** Move people to their routine spot for the current time slot. Returns names moved. */
+/** Send people toward their routine spot for the current time slot, along the map. Returns names set moving. */
 export function enforceRoutines(state, skip = new Set()) {
     const ids = new Set(state.locations.map(l => l.id));
     const byName = new Map(state.locations.map(l => [slug(l.name, ''), l.id]));
@@ -314,19 +347,20 @@ export function enforceRoutines(state, skip = new Set()) {
         if (!n.routine || n.status === 'dead' || skip.has(n.id)) continue;
         let target = n.routine[slot] || n.routine.day;
         if (target && !ids.has(target)) target = byName.get(target);
-        if (!target || target === n.locationId) continue;
-        n.locationId = target;
-        moved.push(n.name);
+        if (!target || target === n.locationId || n.travel?.to === target) continue;
+        if (sendNpc(state, n, target) !== 'no-route') moved.push(n.name);
     }
     return moved;
 }
 
-/** Advance time; when the time of day turns over, people drift to their routines. */
+/** Advance time; trips in progress land; when the time of day turns over, people set off on their routines. */
 export function passTime(state, minutes, skip) {
     const before = timeSlot(state);
     advanceClock(state.clock, minutes);
+    tickTravel(state);
     if (timeSlot(state) === before) return;
     if (enforceRoutines(state, skip).length) state.chronicle.push({ at: nowIso(), text: `As ${timeSlot(state)} settles in, folk drift to their usual haunts.` });
+    tickTravel(state);
 }
 
 function defined(obj) {
@@ -345,7 +379,8 @@ function merge(collection, entries, { allowNew = true, defaults = {}, prefix }) 
         const existing = collection.find(x => x.id === id || (name && x.name.toLowerCase() === name));
         if (existing) {
             const connections = value.connections ? [...new Set([...(existing.connections || []), ...list(value.connections).map(c => slug(c, 'location'))])] : existing.connections;
-            Object.assign(existing, value, { id: existing.id }, connections ? { connections } : {});
+            const routes = value.routes && typeof value.routes === 'object' ? { ...existing.routes, ...value.routes } : existing.routes;
+            Object.assign(existing, value, { id: existing.id }, connections ? { connections } : {}, routes ? { routes } : {});
             touched.push(existing.id);
         } else if (allowNew && (value.name || value.id)) {
             collection.push({ ...defaults, ...value, id, name: value.name || value.id });
@@ -357,62 +392,139 @@ function merge(collection, entries, { allowNew = true, defaults = {}, prefix }) 
 }
 
 const pick = (patch, ...keys) => keys.flatMap(k => list(patch[k]));
+const STATE_FIELDS = ['body', 'mind', 'holding', 'tags'];
+const findPlace = (state, ref) => state.locations.find(l => l.id === slug(ref, '') || l.name.toLowerCase() === String(ref ?? '').toLowerCase());
 
-/** Apply a director patch. Accepts the v2 contract and the v1 new_x/x_updates keys. */
+/** Mark a walked path visited; returns nothing. */
+function walk(state, path) {
+    for (const id of path) {
+        const loc = state.locations.find(l => l.id === id);
+        if (loc) loc.visited = loc.discovered = true;
+    }
+}
+
+/**
+ * Apply a director patch under the world's rules: the director proposes, the map decides.
+ * Moves follow routes and cost their time, people elsewhere travel instead of teleporting,
+ * new things appear only where the story is, and state sticks only for people in the scene.
+ * Accepts the v1 new_x/x_updates keys too.
+ */
 export function applyPatch(state, patch, policy = {}) {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('The director returned something other than a JSON object.');
     const p = { allowNewCharacters: true, allowNewItems: true, allowNewLocations: true, maxNpcs: 48, maxItems: 80, maxLocations: 36, ...policy };
-    const here = state.currentLocationId;
+    const start = state.currentLocationId;
+    const before = new Set(presentNpcs(state).map(n => n.id));
+    const rejected = [];
     const stamp = nowIso();
 
     const locs = merge(state.locations, pick(patch, 'locations', 'new_locations', 'location_updates'), { allowNew: p.allowNewLocations, prefix: 'location', defaults: { type: 'place', discovered: true, connections: [], danger: 'unknown' } });
-    const anchor = state.locations.find(l => l.id === here);
     for (const id of locs.created) {
         const loc = state.locations.find(l => l.id === id);
-        if (!anchor || loc === anchor || (loc.connections || []).length) continue;
-        loc.connections = [anchor.id];
+        loc.connections = list(loc.connections).map(c => slug(c, 'location'));
+        if (loc.id !== start && !loc.connections.includes(start)) loc.connections.push(start); // new places open off the scene
     }
-    for (const loc of state.locations) {
-        for (const c of loc.connections || []) {
-            const other = state.locations.find(l => l.id === slug(c, 'location'));
-            if (other && !other.connections.includes(loc.id)) other.connections.push(loc.id);
+    normalizeRoutes(state.locations);
+
+    // People: positions become move proposals, state waits until we know who is here.
+    const moves = [];
+    const later = [];
+    const people = pick(patch, 'npcs', 'new_npcs', 'npc_updates').filter(e => e && typeof e === 'object' && !Array.isArray(e)).map(raw => {
+        const e = { ...raw };
+        const extra = {};
+        for (const k of STATE_FIELDS) if (k in e) { extra[k] = e[k]; delete e[k]; }
+        if ('locationId' in e) {
+            const loc = findPlace(state, e.locationId);
+            const existing = state.npcs.find(n => n.id === slug(e.id || e.name, 'npc') || (e.name && n.name.toLowerCase() === String(e.name).toLowerCase()));
+            if (existing && loc && loc.id !== existing.locationId) moves.push({ npc: existing, to: loc.id });
+            else if (existing && !loc) rejected.push(`${existing.name} → "${e.locationId}": unknown place`);
+            if (existing || !loc) delete e.locationId;
+            else e.locationId = loc.id; // a mentioned person keeps their (existing) home
         }
+        later.push([e, extra]);
+        return e;
+    });
+    const npcs = merge(state.npcs, people, { allowNew: p.allowNewCharacters, prefix: 'npc', defaults: { locationId: start, status: 'active', firstSeen: stamp } });
+    for (const id of npcs.created) {
+        const n = state.npcs.find(x => x.id === id);
+        if (n.locationId !== start) n.known = true; // heard about
+        n.nameKnown ??= n.locationId !== start;
     }
 
-    // A bogus place reference must not teleport anyone: drop it and keep where they were.
-    const placed = entries => entries.map(e => {
-        if (!e || typeof e !== 'object' || !('locationId' in e)) return e;
-        const loc = state.locations.find(l => l.id === slug(e.locationId, '') || l.name.toLowerCase() === String(e.locationId).toLowerCase());
-        const { locationId, ...rest } = e;
-        return loc ? { ...rest, locationId: loc.id } : rest;
-    });
-    const npcs = merge(state.npcs, placed(pick(patch, 'npcs', 'new_npcs', 'npc_updates')), { allowNew: p.allowNewCharacters, prefix: 'npc', defaults: { locationId: here, status: 'active', firstSeen: stamp } });
-    for (const id of npcs.touched) {
-        const n = state.npcs.find(x => x.id === id);
-        if (n && n.locationId === state.currentLocationId) n.lastSeen = stamp;
+    const items = merge(state.items, pick(patch, 'items', 'new_items', 'item_updates'), { allowNew: p.allowNewItems, prefix: 'item', defaults: { locationId: start, quantity: 1, rarity: 'ordinary' } });
+    const presentIds = new Set(presentNpcs(state).map(n => n.id));
+    for (const id of items.created) {
+        const it = state.items.find(x => x.id === id);
+        if (it.ownerId === 'player') it.locationId = '';
+        else if (it.ownerId && presentIds.has(slug(it.ownerId, ''))) it.locationId = '';
+        else { it.ownerId = ''; it.locationId = start; }
     }
-    merge(state.items, placed(pick(patch, 'items', 'new_items', 'item_updates')), { allowNew: p.allowNewItems, prefix: 'item', defaults: { locationId: here, quantity: 1, rarity: 'ordinary' } });
     merge(state.factions, pick(patch, 'factions', 'new_factions', 'faction_updates'), { prefix: 'faction', defaults: { status: 'active' } });
     merge(state.events, pick(patch, 'events', 'new_events', 'event_updates'), { prefix: 'event', defaults: { status: 'active' } });
     merge(state.quests, pick(patch, 'quests', 'new_quests', 'quest_updates'), { prefix: 'quest', defaults: { status: 'active' } });
 
+    // The user's move: along the map, never a jump.
+    let walked = 0;
     const target = patch.move_to || patch.current_location_id;
     if (target) {
-        const dest = state.locations.find(l => l.id === slug(target, '') || l.name.toLowerCase() === String(target).toLowerCase());
-        if (dest && dest.id !== state.currentLocationId) {
+        const dest = findPlace(state, target);
+        const route = dest && dest.id !== start ? shortestPath(state, start, dest.id) : null;
+        if (!dest) rejected.push(`move_to "${target}": unknown place`);
+        else if (dest.id !== start && !route) rejected.push(`move_to ${dest.name}: no route from ${currentLocation(state).name}`);
+        else if (route) {
+            walk(state, route.path);
+            walked = route.minutes;
             state.currentLocationId = dest.id;
             state.scene.ambient = '';
+            state.scene.now = '';
         }
     }
+
+    // Others set off now; whoever's trip fits in the elapsed time arrives.
+    for (const { npc, to } of moves) if (sendNpc(state, npc, to) === 'no-route') rejected.push(`${npc.name} → ${to}: no route`);
     if (patch.weather) state.clock.weather = str(patch.weather, 60);
     if (patch.ambient) state.scene.ambient = str(patch.ambient, 500);
-    passTime(state, patch.minutes ?? patch.time_minutes, new Set(npcs.touched));
+    passTime(state, Math.max(capMinutes(patch.minutes ?? patch.time_minutes, patch.jump), walked), new Set(npcs.touched));
+
+    const here = new Set(presentNpcs(state).map(n => n.id));
+    for (const [e, extra] of later) {
+        const n = state.npcs.find(x => x.id === slug(e.id || e.name, 'npc') || (e.name && x.name.toLowerCase() === String(e.name).toLowerCase()));
+        if (!n || !here.has(n.id)) continue;
+        if (extra.body) n.body = { ...n.body, ...fields(extra.body, BODY.filter(k => k in extra.body), 120) };
+        if (extra.mind) n.mind = { ...n.mind, ...fields(extra.mind, MIND.filter(k => k in extra.mind), 120) };
+        if ('holding' in extra) n.holding = strList(extra.holding, 6, 80);
+        if ('tags' in extra) n.tags = strList(extra.tags, 3, 40);
+    }
+    for (const n of state.npcs) if (here.has(n.id)) n.lastSeen = stamp;
+    if (patch.you && typeof patch.you === 'object') {
+        state.player.body = { ...state.player.body, ...fields(patch.you, YOU.filter(k => k in patch.you), 120) };
+        if ('holding' in patch.you) state.player.holding = strList(patch.you.holding, 6, 80);
+    }
+    if (patch.now) state.scene.now = str(patch.now, 400);
+
+    const tick = state.meta.tick + 1;
+    const nowAt = currentLocation(state);
+    if (patch.sounds && typeof patch.sounds === 'object') {
+        for (const [ref, text] of Object.entries(patch.sounds)) {
+            const loc = findPlace(state, ref);
+            if (loc && nowAt.routes?.[loc.id]?.sense === 'door' && str(text, 200)) Object.assign(loc, { sound: str(text, 200), soundTick: tick });
+        }
+    }
+
+    const moved = state.currentLocationId !== start;
+    state.scene.arrived = moved ? [] : [...here].filter(id => !before.has(id));
+    state.scene.left = moved ? [] : [...before].filter(id => !here.has(id)).map(id => {
+        const n = state.npcs.find(x => x.id === id);
+        return { id, toward: n?.travel?.to || (n && n.locationId !== state.currentLocationId ? n.locationId : '') };
+    });
+    state.scene.peeked = [];
+    state.scene.note = '';
+    state.meta.rejected = rejected;
 
     const chronicle = strList(patch.chronicle, 3, 700);
     if (!chronicle.length && patch.summary) chronicle.push(str(patch.summary, 700));
     for (const text of chronicle) state.chronicle.push({ at: stamp, text });
 
-    state.meta.tick += 1;
+    state.meta.tick = tick;
     state.meta.updatedAt = stamp;
     const out = normalizeState(state);
     const keepHere = x => x.locationId === out.currentLocationId;
@@ -430,17 +542,18 @@ function capKeeping(items, max, keep) {
     return items.filter(x => !drop.has(x));
 }
 
-/** Player-driven travel along the map. Returns the chronicle line, or '' if nothing changed. */
-export function travel(state, idOrName, minutes = 15) {
-    const q = String(idOrName ?? '').trim();
-    const target = state.locations.find(l => l.id === q || l.id === slug(q, '') || l.name.toLowerCase() === q.toLowerCase());
-    if (!target || target.id === state.currentLocationId) return '';
+/** Player-driven travel along the map. Returns the chronicle line, or '' when there is no route. */
+export function travel(state, idOrName) {
+    const dest = findPlace(state, String(idOrName ?? '').trim());
+    if (!dest || dest.id === state.currentLocationId) return '';
+    const route = shortestPath(state, state.currentLocationId, dest.id);
+    if (!route) return '';
     const from = currentLocation(state);
-    state.currentLocationId = target.id;
-    target.discovered = true;
-    state.scene.ambient = '';
-    passTime(state, minutes);
-    const line = `Travelled from ${from?.name || 'somewhere'} to ${target.name}.`;
+    walk(state, route.path);
+    state.currentLocationId = dest.id;
+    Object.assign(state.scene, { ambient: '', now: '', arrived: [], left: [], peeked: [], note: `{{user}} went to ${dest.name} (${route.minutes} min).` });
+    passTime(state, route.minutes);
+    const line = `Travelled from ${from?.name || 'somewhere'} to ${dest.name} (${route.minutes} min).`;
     state.chronicle.push({ at: nowIso(), text: line });
     state.chronicle = state.chronicle.slice(-MAX_CHRONICLE);
     return line;

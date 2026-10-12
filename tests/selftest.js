@@ -18,7 +18,7 @@ function world() {
         locations: [
             { id: 'market', name: 'Market Square', type: 'plaza', description: 'Stalls under dripping awnings.', connections: ['docks'] },
             { id: 'docks', name: 'Docks', type: 'harbor', description: 'Tar and gulls.' },
-            { id: 'temple', name: 'Old Temple', type: 'shrine' },
+            { id: 'temple', name: 'Old Temple', type: 'shrine', connections: ['docks'] },
         ],
         npcs: [
             { id: 'mara', name: 'Mara', role: 'fishmonger', locationId: 'market', personality: 'Sharp-tongued', routine: { dawn: 'docks', day: 'market', dusk: 'market', night: 'temple' } },
@@ -103,13 +103,15 @@ t('routines fire only when the time of day turns over', () => {
     s = applyPatch(s, { minutes: 30 });
     assert.equal(timeSlot(s), 'day');
     assert.equal(s.npcs[0].locationId, 'market');
-    s = applyPatch(s, { minutes: 13 * 60 });
+    s = applyPatch(s, { minutes: 13 * 60, jump: 'wait' });
     assert.equal(timeSlot(s), 'night');
+    assert.equal(s.npcs[0].travel?.to, 'temple', 'night routine starts a walk');
+    s = applyPatch(s, { minutes: 15 });
     assert.equal(s.npcs[0].locationId, 'temple');
 });
 
 t('explicit moves in a patch beat the routine', () => {
-    const s = applyPatch(world(), { minutes: 14 * 60, npcs: [{ id: 'mara', locationId: 'docks' }] });
+    const s = applyPatch(world(), { minutes: 600, jump: 'wait', npcs: [{ id: 'mara', locationId: 'docks' }] });
     assert.equal(s.npcs[0].locationId, 'docks');
 });
 
@@ -291,6 +293,112 @@ t('sendNpc puts far people en route and tickTravel lands them at eta', () => {
     assert.equal(tom.travel, null);
     assert.equal(sendNpc(s, tom, 'island'), 'no-route');
     assert.equal(sendNpc(s, tom, 'market'), 'arrived', 'already there');
+});
+
+// ---- engine v3: logical patching ----
+function island(s) {
+    s.locations.push({ id: 'island', name: 'Far Island', type: 'beach', connections: [], routes: {}, discovered: false, visited: false, sound: '', soundTick: 0, description: '', danger: 'unknown' });
+    return s;
+}
+
+t('v2 world migrates to v3 silently', () => {
+    const v2 = { version: 2, worldName: 'Old', locations: [{ id: 'a', name: 'A', type: 'room', connections: ['b'] }, { id: 'b', name: 'B', type: 'room' }], currentLocationId: 'a', npcs: [{ id: 'x', name: 'X', locationId: 'b' }] };
+    const s = normalizeState(v2);
+    assert.equal(s.version, 3);
+    assert.deepEqual(s.locations[0].routes, { b: { minutes: 1, sense: 'door' } });
+    assert.equal(s.locations[0].visited, true, 'the current place counts as visited');
+    const x = s.npcs[0];
+    assert.ok(x.known && x.nameKnown, 'people shown by name in 2.0 stay known');
+    assert.deepEqual(x.body, { restraints: '', wearing: '', position: '', condition: '' });
+    assert.deepEqual(x.mind, { mood: '', wants: '', toward: '' });
+    assert.deepEqual([x.holding, x.tags, x.travel], [[], [], null]);
+    assert.deepEqual(s.scene, { ambient: '', now: '', arrived: [], left: [], note: '', peeked: [] });
+    assert.deepEqual(s.player.holding, []);
+    assert.deepEqual(s.meta.rejected, []);
+});
+
+t('people generated for a v3 world start unknown unless already met', () => {
+    const s = normalizeState({ version: 3, locations: [{ id: 'a', name: 'A' }], npcs: [{ name: 'Stranger' }, { name: 'Friend', known: true, nameKnown: true }] });
+    assert.deepEqual(s.npcs.map(n => [n.known, n.nameKnown]), [[false, false], [true, true]]);
+    const card = baseWorld({ name: 'Iris' });
+    assert.ok(card.npcs[0].known && card.npcs[0].nameKnown, 'the card character is known by name');
+});
+
+t('move_to an unconnected place walks the path and charges its time', () => {
+    const s = applyPatch(world(), { move_to: 'temple' });
+    assert.equal(s.currentLocationId, 'temple');
+    assert.equal(s.clock.time, '08:42', 'market to docks 10 min + docks to temple 2 min');
+    assert.ok(s.locations.find(l => l.id === 'docks').visited, 'places on the way are visited');
+});
+
+t('unreachable move_to is rejected and logged', () => {
+    const s = applyPatch(island(world()), { move_to: 'island', minutes: 5 });
+    assert.equal(s.currentLocationId, 'market');
+    assert.equal(s.clock.time, '08:35');
+    assert.match(s.meta.rejected.join(' '), /Far Island/);
+    assert.match(applyPatch(world(), { move_to: 'atlantis' }).meta.rejected.join(' '), /atlantis/);
+});
+
+t('director minutes are capped unless a jump is named', () => {
+    assert.equal(applyPatch(world(), { minutes: 240 }).clock.time, '10:00');
+    assert.equal(applyPatch(world(), { minutes: 600, jump: 'sleep' }).clock.time, '18:30');
+});
+
+t('a new item elsewhere is pulled into the scene', () => {
+    const s = applyPatch(world(), { items: [{ name: 'Gem', locationId: 'docks' }, { name: 'Coin', ownerId: 'player' }, { name: 'Pipe', ownerId: 'tom' }] });
+    const by = n => s.items.find(i => i.name === n);
+    assert.equal(by('Gem').locationId, 'market');
+    assert.deepEqual([by('Coin').ownerId, by('Coin').locationId], ['player', '']);
+    assert.deepEqual([by('Pipe').ownerId, by('Pipe').locationId], ['', 'market'], 'Tom is not here to own it');
+});
+
+t('a mentioned person may live at an existing place', () => {
+    const s = applyPatch(world(), { npcs: [{ id: 'perrin', name: 'Perrin', role: 'ferryman', locationId: 'docks', nameKnown: true }, { name: 'Walk-in', role: 'courier' }] });
+    const p = s.npcs.find(n => n.id === 'perrin');
+    assert.deepEqual([p.locationId, p.known, p.nameKnown], ['docks', true, true]);
+    assert.equal(s.npcs.find(n => n.name === 'Walk-in').locationId, 'market');
+});
+
+t('state fields only stick for people here', () => {
+    const s = applyPatch(world(), { npcs: [{ id: 'mara', body: { wearing: 'apron', restraints: 'none' }, mind: { mood: 'brisk' }, tags: ['haggling', 'brisk', 'wet', 'extra'], holding: ['knife'] }, { id: 'tom', body: { wearing: 'rags' } }] });
+    const mara = s.npcs.find(n => n.id === 'mara');
+    assert.equal(mara.body.wearing, 'apron');
+    assert.equal(mara.mind.mood, 'brisk');
+    assert.deepEqual(mara.tags, ['haggling', 'brisk', 'wet']);
+    assert.deepEqual(mara.holding, ['knife']);
+    assert.equal(s.npcs.find(n => n.id === 'tom').body.wearing, '');
+});
+
+t('you, sounds and the right-now line', () => {
+    const s = normalizeState({ locations: [{ id: 'hall', name: 'Hall', type: 'hallway', connections: ['kitchen', 'street'] }, { id: 'kitchen', name: 'Kitchen', type: 'kitchen' }, { id: 'street', name: 'Street', type: 'street' }], currentLocationId: 'hall' });
+    const n = applyPatch(s, { you: { holding: ['key'], wearing: 'coat', mood: 'scared' }, sounds: { kitchen: 'pans clattering', street: 'cart wheels', nowhere: 'x' }, now: 'Someone is cooking.' });
+    assert.deepEqual(n.player.holding, ['key']);
+    assert.equal(n.player.body.wearing, 'coat');
+    assert.ok(!('mood' in n.player.body), 'no feelings for the user');
+    const k = n.locations.find(l => l.id === 'kitchen');
+    assert.deepEqual([k.sound, k.soundTick], ['pans clattering', n.meta.tick]);
+    assert.equal(n.locations.find(l => l.id === 'street').sound, 'cart wheels', 'hall to street is a door too (mixed)');
+    assert.equal(n.scene.now, 'Someone is cooking.');
+});
+
+t('arrivals and departures are recorded with direction', () => {
+    let s = applyPatch(world(), { minutes: 15, npcs: [{ id: 'tom', locationId: 'market' }] });
+    assert.deepEqual(s.scene.arrived, ['tom']);
+    s = applyPatch(s, { npcs: [{ id: 'mara', locationId: 'temple' }] });
+    assert.deepEqual(s.scene.left, [{ id: 'mara', toward: 'temple' }]);
+    assert.ok(!presentNpcs(s).some(n => n.id === 'mara'), 'on the road, not in the room');
+    assert.equal(s.npcs.find(n => n.id === 'mara').travel.to, 'temple');
+    s = applyPatch(s, { move_to: 'docks' });
+    assert.deepEqual([s.scene.arrived, s.scene.left], [[], []], 'a new scene has no arrivals');
+});
+
+t('travel refuses without a route and charges route time', () => {
+    const s = island(world());
+    assert.equal(travel(s, 'Far Island'), '');
+    assert.match(travel(s, 'Docks'), /Market Square to Docks \(10 min\)/);
+    assert.equal(s.clock.time, '08:40');
+    assert.match(s.scene.note, /Docks/);
+    assert.ok(s.locations.find(l => l.id === 'docks').visited);
 });
 
 let failed = 0;
