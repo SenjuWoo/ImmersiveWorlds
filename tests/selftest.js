@@ -6,6 +6,7 @@ import {
     cleanText, transcriptOf, timeSlot, advanceClock, currentLocation, presentNpcs, isOpen, slug,
 } from '../engine.js';
 import { parseJson, isRejection, errorText } from '../llm.js';
+import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel } from '../rules.js';
 
 const tests = [];
 const t = (name, fn) => tests.push([name, fn]);
@@ -215,6 +216,81 @@ t('shared kit files are identical to the copy in Immersive Adventures (when chec
     let otherCss;
     try { otherCss = readFileSync(new URL('style.css', sibling), 'utf8'); } catch { return; }
     assert.equal(kit(readFileSync(new URL('../style.css', import.meta.url), 'utf8')), kit(otherCss), 'style.css kit block');
+});
+
+// ---- rules.js: routes, paths, clock, travel ----
+function house() {
+    const locations = [
+        { id: 'hall', name: 'Hall', type: 'hallway', connections: ['living', 'kitchen', 'street'] },
+        { id: 'living', name: 'Living Room', type: 'living room', connections: ['hall'] },
+        { id: 'kitchen', name: 'Kitchen', type: 'kitchen', connections: ['hall'], routes: { hall: { minutes: 3, sense: 'open' } } },
+        { id: 'street', name: 'Street', type: 'street', connections: ['hall', 'market'] },
+        { id: 'market', name: 'Market', type: 'market', connections: ['street'] },
+        { id: 'island', name: 'Island', type: 'beach', connections: [] },
+    ];
+    normalizeRoutes(locations);
+    return { locations, currentLocationId: 'living', clock: { day: 1, time: '10:00' }, npcs: [] };
+}
+
+t('routes are symmetric and typed', () => {
+    const s = house();
+    const by = id => s.locations.find(l => l.id === id);
+    assert.deepEqual(by('hall').routes.kitchen, { minutes: 3, sense: 'open' }, 'the side that had a route wins');
+    assert.deepEqual(by('kitchen').routes.hall, { minutes: 3, sense: 'open' });
+    assert.deepEqual(by('living').routes.hall, { minutes: 1, sense: 'door' }, 'indoor-indoor');
+    assert.deepEqual(by('street').routes.market, { minutes: 10, sense: 'none' }, 'outdoor-outdoor');
+    assert.deepEqual(by('hall').routes.street, { minutes: 2, sense: 'door' }, 'mixed');
+    assert.deepEqual(by('hall').connections.sort(), ['kitchen', 'living', 'street']);
+});
+
+t('unknown sense coerces to door and minutes are clamped', () => {
+    const locs = [{ id: 'a', type: 'room', connections: ['b'], routes: { b: { minutes: -5, sense: 'telepathy' } } }, { id: 'b', type: 'room', connections: [] }];
+    normalizeRoutes(locs);
+    assert.deepEqual(locs[0].routes.b, { minutes: 0, sense: 'door' });
+    assert.deepEqual(locs[1].connections, ['a']);
+    assert.ok(SENSES.includes('open') && SENSES.includes('none'));
+});
+
+t('shortest path sums minutes across hops', () => {
+    const s = house();
+    assert.deepEqual(shortestPath(s, 'living', 'market'), { path: ['living', 'hall', 'street', 'market'], minutes: 13 });
+    assert.deepEqual(routeOf(s, 'hall', 'kitchen'), { minutes: 3, sense: 'open' });
+    assert.equal(routeOf(s, 'living', 'market'), null);
+});
+
+t('no path returns null (single-location world)', () => {
+    const s = house();
+    assert.equal(shortestPath(s, 'living', 'island'), null);
+    assert.equal(shortestPath({ locations: [{ id: 'x', routes: {}, connections: [] }] }, 'x', 'y'), null);
+    assert.deepEqual(shortestPath(s, 'hall', 'hall'), { path: ['hall'], minutes: 0 });
+});
+
+t('capMinutes caps 90 normally and 720 with a jump reason', () => {
+    assert.equal(capMinutes(30), 30);
+    assert.equal(capMinutes(240), 90);
+    assert.equal(capMinutes(600, 'sleep'), 600);
+    assert.equal(capMinutes(2000, 'wait'), 720);
+    assert.equal(capMinutes(240, 'nonsense'), 90);
+    assert.equal(capMinutes(-3), 0);
+    assert.equal(capMinutes('abc'), 0);
+});
+
+t('sendNpc puts far people en route and tickTravel lands them at eta', () => {
+    const s = house();
+    const tom = { id: 'tom', locationId: 'living', travel: null };
+    s.npcs.push(tom);
+    assert.equal(worldMinutes(s.clock), 600);
+    assert.equal(sendNpc(s, tom, 'market'), 'en-route');
+    assert.equal(tom.locationId, 'living');
+    assert.deepEqual(tom.travel, { to: 'market', eta: 613 });
+    s.clock.time = '10:05';
+    assert.deepEqual(tickTravel(s), []);
+    s.clock.time = '10:13';
+    assert.deepEqual(tickTravel(s), ['tom']);
+    assert.equal(tom.locationId, 'market');
+    assert.equal(tom.travel, null);
+    assert.equal(sendNpc(s, tom, 'island'), 'no-route');
+    assert.equal(sendNpc(s, tom, 'market'), 'arrived', 'already there');
 });
 
 let failed = 0;
