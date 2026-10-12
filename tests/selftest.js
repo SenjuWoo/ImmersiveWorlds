@@ -209,9 +209,7 @@ t('manifest version matches index.js', () => {
 });
 
 t('shared kit files are identical to the copy in Immersive Adventures (when checked out side by side)', () => {
-    const read = url => readFileSync(url, 'utf8').split('
-').join('
-'); // git autocrlf may differ per checkout
+    const read = url => readFileSync(url, 'utf8').replace(/\r\n/g, '\n'); // git autocrlf may differ per checkout
     const sibling = new URL('../../ImmersiveAdventures/', import.meta.url);
     for (const f of ['kit.js', 'llm.js']) {
         let other;
