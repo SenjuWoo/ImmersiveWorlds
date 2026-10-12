@@ -90,7 +90,7 @@ export function perceive(state, mode = 'senses', { userName = '' } = {}) {
         if (!loc || (!loc.discovered && !all)) return null;
         const seen = r.sense === 'open' || state.scene.peeked.includes(id) || mode !== 'senses';
         return {
-            id, name: loc.name, minutes: r.minutes, sense: r.sense, visited: loc.visited,
+            id, name: loc.name, minutes: r.minutes, sense: r.sense, visited: loc.visited, seen,
             people: seen ? at(state, id).map(n => labelOf(n, mode)) : [],
             sound: !seen && r.sense === 'door' ? soundOf(state, loc) : '',
         };
@@ -104,7 +104,7 @@ export function perceive(state, mode = 'senses', { userName = '' } = {}) {
             icon: weatherIcon(state),
             atmosphere: atmosphereLine(state),
             now: state.scene.now,
-            threads: [...state.events, ...state.quests].filter(isOpen).slice(-3).map(t => t.name),
+            threads: [...state.events, ...state.quests].filter(t => isOpen(t) && (t.known || all)).slice(-3).map(t => t.name),
         },
         people,
         left,

@@ -447,6 +447,8 @@ t('open neighbours are seen; walls give nothing; unknown places are not drawn', 
 
 t('nearby and all modes widen the view', () => {
     assert.deepEqual(perceive(flat(), 'nearby').around.find(a => a.id === 'kitchen').people, ['a cook', 'a courier']);
+    assert.equal(perceive(flat(), 'senses').around.find(a => a.id === 'garden').seen, false, 'a wall hides the garden');
+    assert.equal(perceive(flat(), 'nearby').around.find(a => a.id === 'garden').seen, true, 'nearby mode sees into it');
     const all = perceive(flat(), 'all');
     assert.deepEqual(all.around.find(a => a.id === 'kitchen').people, ['Marta', 'Pip']);
     assert.deepEqual(all.people.find(p => p.id === 'fern').secrets, ['she set this up']);
@@ -530,6 +532,17 @@ t('director carries routes, state and sheets and stays under 3500', () => {
     for (const x of ['EXITS kitchen=Kitchen 1m door', 'hall=Hall 1m open', 'STATE fern: cuffed, humiliated | restraints cuffed behind her back', 'SHEETS', 'fern: xxx', 'you: Alex, a nervous courier.', '"sounds"', '"jump"', '"now"', '"you"', '"body"', 'only for people HERE', 'Sheets win']) assert.ok(p.includes(x), x);
     assert.ok(!p.includes('x'.repeat(241)), 'sheets are capped at 240 chars');
     assert.ok(p.length < 3500, `director prompt is ${p.length} chars`);
+});
+
+
+t('threads stay off the HUD until the story touches them', () => {
+    const s = normalizeState({ version: 3, locations: [{ id: 'a', name: 'A' }], quests: [{ name: 'The ferryman stole the fund' }], events: [{ name: 'Smoke on the hill', known: true }] });
+    assert.equal(s.quests[0].known, false);
+    assert.deepEqual(perceive(s, 'senses').scene.threads, ['Smoke on the hill']);
+    assert.deepEqual(perceive(s, 'all').scene.threads, ['Smoke on the hill', 'The ferryman stole the fund']);
+    const n = applyPatch(s, { quests: [{ name: 'A new lead' }, { name: 'The ferryman stole the fund', status: 'active' }] });
+    assert.deepEqual(perceive(n, 'senses').scene.threads, ['Smoke on the hill', 'The ferryman stole the fund', 'A new lead']);
+    assert.ok(normalizeState({ quests: ['Old v2 quest'] }).quests[0].known, 'v2 threads were already shown');
 });
 
 let failed = 0;

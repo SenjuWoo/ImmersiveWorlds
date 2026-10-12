@@ -43,7 +43,8 @@ export function mountHud(opts = {}) {
     document.body.append(root);
     root.addEventListener('click', onClick);
     root.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('[data-iw-person]')) onClick(e); });
-    document.addEventListener('click', e => { if (root && !root.contains(e.target) && (openNode || openItem)) { openNode = openItem = ''; draw(); } });
+    // composedPath, not contains(): our own click handler re-renders, detaching the target before this runs.
+    document.addEventListener('click', e => { if (root && !e.composedPath().includes(root) && (openNode || openItem)) { openNode = openItem = ''; draw(); } });
     addEventListener('resize', layout);
     const sheld = document.getElementById('sheld');
     if (sheld && 'ResizeObserver' in window) { const ro = new ResizeObserver(layout); ro.observe(sheld); observers.push(ro); }
@@ -129,14 +130,15 @@ function cardHtml(p) {
 function peopleHtml(people, left) {
     const rows = people.map(p => `
         <div class="iw-hud-person ${p.isNew ? 'is-new' : ''} ${p.isYou ? 'is-you' : ''} ${pinned === p.id ? 'is-open' : ''}" data-iw-person="${esc(p.id)}" tabindex="0">
-            <span class="iw-hud-tags">${p.tags.map((t, i) => `<span class="iw-hud-tag ${i === 0 && !p.isYou ? 'is-hot' : ''}">${esc(t)}</span>`).join('')}</span>
-            <span class="iw-hud-name">${esc(p.label)}${p.isYou ? ' <small>you</small>' : ''}</span>
+            <span class="iw-hud-who">
+                <span class="iw-hud-name">${esc(p.label)}${p.isYou ? ' <small>you</small>' : ''}</span>
+                <span class="iw-hud-tags">${p.tags.map((t, i) => `<span class="iw-hud-tag ${i === 0 && !p.isYou ? 'is-hot' : ''}">${esc(t)}</span>`).join('')}</span>
+            </span>
             ${face(p)}
         </div>${cardHtml(p)}`).join('');
     const gone = left.map((p, i) => `
         <div class="iw-hud-person is-gone">
-            <span class="iw-hud-tags"><span class="iw-hud-tag">left${p.toward ? ` · toward ${esc(p.toward)}` : ''}</span></span>
-            <span class="iw-hud-name">${esc(p.label)}</span>${face({ ...p, id: `left-${i}` })}
+            <span class="iw-hud-who"><span class="iw-hud-name">${esc(p.label)}</span><span class="iw-hud-tags"><span class="iw-hud-tag">left${p.toward ? ` · toward ${esc(p.toward)}` : ''}</span></span></span>${face({ ...p, id: `left-${i}` })}
         </div>`).join('');
     return rows + gone;
 }
@@ -156,20 +158,20 @@ function itemsHtml(items) {
 function statusOf(a) {
     if (a.people.length) return a.people.length > 2 ? `${a.people.slice(0, 2).join(', ')} +${a.people.length - 2}` : a.people.join(', ');
     if (a.sound) return `“${a.sound}”`;
-    if (a.sense === 'open') return 'empty';
+    if (a.seen) return 'empty';
     return a.sense === 'door' ? 'quiet' : 'can’t see in';
 }
 
 function mapHtml(place, around) {
     const nodes = around.slice(0, MAX_NODES);
-    const W = 320, H = 210, cx = W / 2, cy = H / 2 + 6, rx = 118, ry = 72;
+    const W = 320, H = 240, cx = W / 2, cy = H / 2, rx = 112, ry = 86;
     const pos = nodes.map((_, i) => {
         const a = (-90 + (i * 360) / nodes.length) * (Math.PI / 180);
         return [cx + rx * Math.cos(a), cy + ry * Math.sin(a)];
     });
     const pct = ([x, y]) => `left:${(x / W) * 100}%;top:${(y / H) * 100}%`;
     const lines = nodes.map((n, i) => `<line x1="${cx}" y1="${cy}" x2="${pos[i][0]}" y2="${pos[i][1]}" class="is-${n.sense}"/>`).join('');
-    const mins = nodes.map((n, i) => `<span class="iw-hud-mins" style="${pct([(cx + pos[i][0]) / 2, (cy + pos[i][1]) / 2])}">${n.minutes}m</span>`).join('');
+    const mins = nodes.map((n, i) => `<span class="iw-hud-mins" style="${pct([cx + (pos[i][0] - cx) * 0.42, cy + (pos[i][1] - cy) * 0.42])}">${n.minutes}m</span>`).join('');
     const menu = n => openNode === n.id ? `<span class="iw-hud-menu">
             <button type="button" data-iw-go="${esc(n.id)}"><i class="fa-solid fa-person-walking"></i>Go · ${n.minutes} min</button>
             ${n.sense === 'door' && !n.people.length ? `<button type="button" data-iw-peek="${esc(n.id)}"><i class="fa-solid fa-eye"></i>Peek</button>` : ''}
@@ -204,7 +206,7 @@ function onClick(e) {
 function announce() {
     const lines = [];
     const arrived = view.people.filter(p => p.isNew).map(p => p.label);
-    if (arrived.length) lines.push(`${arrived.join(', ')} ${arrived.length > 1 ? 'arrive' : 'arrives'}.`);
+    if (arrived.length) lines.push(`${arrived.join(', ').replace(/^./, ch => ch.toUpperCase())} ${arrived.length > 1 ? 'arrive' : 'arrives'}.`);
     for (const a of view.around) if (a.sound && a.sound !== 'voices' && a.sound !== 'someone moving about' && lastSounds.get(a.id) !== a.sound) lines.push(`From ${a.name}: ${a.sound}`);
     if (!lines.length) return;
     const toast = root.querySelector('.iw-hud-toast');

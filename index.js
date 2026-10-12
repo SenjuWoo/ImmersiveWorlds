@@ -320,8 +320,11 @@ async function buildWorld() {
         const generated = parseJson(raw);
         if (ctx().getCurrentChatId() !== chatId) return;
         const state = normalizeState({ ...baseWorld(cardInfo()), ...generated, chronicle: [{ at: nowIso(), text: 'The living world took shape.' }], meta: { bootstrapped: true, lastIndex: chat.length - 1 } });
-        const cardName = String(cardInfo().name || '').toLowerCase();
-        for (const n of state.npcs) if (cardName && n.name.toLowerCase() === cardName) Object.assign(n, { known: true, nameKnown: true });
+        const card = cardInfo();
+        for (const n of state.npcs) {
+            if (!card.name || n.name.toLowerCase() !== card.name.toLowerCase()) continue;
+            Object.assign(n, { known: true, nameKnown: true, materializedAvatar: n.materializedAvatar || card.avatar || '' });
+        }
         delete ctx().chatMetadata[TURN_KEY];
         setState(state);
         inject();

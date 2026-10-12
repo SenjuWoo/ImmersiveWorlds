@@ -58,13 +58,14 @@ function normRoutine(r) {
     return Object.keys(out).length ? out : null;
 }
 
-function normThread(x, i, prefix) {
+function normThread(x, i, prefix, legacy = false) {
     const t = typeof x === 'string' ? { name: x } : x;
     const out = {
         id: slug(t.id || t.name || t.title || `${prefix}-${i + 1}`, prefix),
         name: str(t.name || t.title || t.summary || prefix, 120),
         description: str(t.description || t.summary || '', 600),
         status: str(t.resolved === true ? 'resolved' : (t.status || 'active'), 40).toLowerCase(),
+        known: typeof t.known === 'boolean' ? t.known : legacy, // a thread is known once the story touches it
     };
     if (prefix === 'faction') out.members = strList(t.members, 30, 100);
     return out;
@@ -147,8 +148,8 @@ export function normalizeState(input) {
         properties: strList(x.properties, 12, 120),
     }));
     s.factions = list(s.factions).map((x, i) => normThread(x, i, 'faction')).slice(-24);
-    s.events = list(s.events).map((x, i) => normThread(x, i, 'event')).slice(-40);
-    s.quests = list(s.quests).map((x, i) => normThread(x, i, 'quest')).slice(-30);
+    s.events = list(s.events).map((x, i) => normThread(x, i, 'event', legacy)).slice(-40);
+    s.quests = list(s.quests).map((x, i) => normThread(x, i, 'quest', legacy)).slice(-30);
     const player = s.player && typeof s.player === 'object' ? s.player : {};
     s.player = {
         currency: Number(player.currency) || 0,
@@ -480,8 +481,10 @@ export function applyPatch(state, patch, policy = {}) {
         else { it.ownerId = ''; it.locationId = start; }
     }
     merge(state.factions, pick(patch, 'factions', 'new_factions', 'faction_updates'), { prefix: 'faction', defaults: { status: 'active' } });
-    merge(state.events, pick(patch, 'events', 'new_events', 'event_updates'), { prefix: 'event', defaults: { status: 'active' } });
-    merge(state.quests, pick(patch, 'quests', 'new_quests', 'quest_updates'), { prefix: 'quest', defaults: { status: 'active' } });
+    for (const [list, keys] of [[state.events, ['events', 'new_events', 'event_updates']], [state.quests, ['quests', 'new_quests', 'quest_updates']]]) {
+        const { touched } = merge(list, pick(patch, ...keys), { prefix: keys[0].slice(0, -1), defaults: { status: 'active' } });
+        for (const t of list) if (touched.includes(t.id)) t.known = true;
+    }
 
     // The user's move: along the map, never a jump.
     let walked = 0;
