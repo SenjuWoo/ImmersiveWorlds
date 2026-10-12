@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>HUD B</title>
+<style>
+  *{box-sizing:border-box;margin:0}
+  body{background:#0d0d0d;font-family:"Noto Sans",system-ui,sans-serif;color:#e6e1d6;overflow-x:hidden}
+  .q{padding:14px 20px;font:15px system-ui;color:#bbb}
+  .q b{color:#fff}
+  .wrap{width:100vw;overflow:hidden}
+  .stage{width:1600px;height:900px;position:relative;transform-origin:0 0;
+    background:radial-gradient(ellipse at 30% 20%,#3b4a3a 0%,#1e2a22 35%,#111814 70%),#111;}
+  .stage::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(200,210,220,.08),transparent 40%);pointer-events:none}
+  /* SillyTavern chat column */
+  .top{position:absolute;left:400px;right:400px;top:0;height:34px;background:rgba(20,20,20,.85);border-bottom:1px solid #333}
+  .chat{position:absolute;left:400px;right:400px;top:40px;bottom:58px;background:rgba(23,23,23,.88);padding:18px 26px;overflow:hidden}
+  .msg{display:flex;gap:12px;margin-bottom:18px}
+  .msg .a{width:44px;height:44px;border-radius:6px;background:#444;flex:none}
+  .msg .a.f{background:linear-gradient(135deg,#c9b8a0,#7c9a7a)}
+  .msg .n{font-weight:600;font-size:14px}.msg .n small{opacity:.45;font-weight:400;font-size:11px;margin-left:6px}
+  .msg p{font-size:13.5px;line-height:1.5;margin-top:3px}
+  .msg em{opacity:.75}
+  .send{position:absolute;left:400px;right:400px;bottom:0;height:52px;background:rgba(20,20,20,.92);border-top:1px solid #333;display:flex;align-items:center;justify-content:center;color:#777;font-size:13px}
+  .strip{position:absolute;left:400px;right:400px;bottom:52px;height:22px;text-align:center;font-size:11.5px;color:#e8a33d;background:rgba(20,20,20,.6)}
+  /* HUD */
+  .hud{position:absolute;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+  .k{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#e8a33d;opacity:.9}
+  .scene{left:28px;top:26px;width:340px}
+  .scene h1{font-family:Georgia,serif;font-weight:400;font-size:30px;letter-spacing:.01em;line-height:1.1}
+  .scene .when{font-size:13px;opacity:.8;margin:4px 0 12px}
+  .scene .now{font-size:14px;line-height:1.45;padding-left:10px;border-left:2px solid rgba(232,163,61,.6)}
+  .scene .threads{margin-top:14px;font-size:12px;opacity:.75;line-height:1.6}
+  .scene .threads span{color:#e8a33d}
+  .people{right:28px;top:26px;width:350px;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+  .p{display:flex;align-items:center;gap:10px}
+  .p .nm{font-weight:600;font-size:15px}
+  .p .ph{width:46px;height:46px;border-radius:50%;border:2px solid rgba(255,255,255,.25);flex:none;box-shadow:0 2px 10px rgba(0,0,0,.6)}
+  .chips{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+  .chip{font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);text-shadow:none}
+  .chip.hot{border-color:rgba(232,163,61,.7);color:#f2b45c}
+  .p.new .ph{border-color:#8fd18f;box-shadow:0 0 0 4px rgba(143,209,143,.18)}
+  .p.gone{opacity:.38}
+  .card{width:350px;background:rgba(14,14,14,.88);border:1px solid rgba(232,163,61,.35);border-radius:10px;padding:12px 14px;text-shadow:none;backdrop-filter:blur(6px)}
+  .card .row{display:flex;font-size:12.5px;line-height:1.55}
+  .card .row b{width:86px;flex:none;opacity:.55;font-weight:500}
+  .card .sec{margin:8px 0 3px}
+  .toast{right:410px;top:60px;width:270px;background:rgba(14,14,14,.85);border-left:3px solid #8fd18f;border-radius:6px;padding:8px 10px;font-size:12.5px;text-shadow:none}
+  .items{left:28px;bottom:26px;width:340px}
+  .tray{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .it{display:flex;flex-direction:column;align-items:center;width:76px;padding:8px 4px;border-radius:8px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.1);text-shadow:none}
+  .it .ic{font-size:22px}.it .l{font-size:11px;margin-top:3px;text-align:center}.it .w{font-size:9.5px;opacity:.55;text-align:center}
+  .it.hot{border-color:rgba(232,163,61,.6)}
+  .map{right:28px;bottom:26px;width:350px;height:250px}
+  .map svg{position:absolute;inset:22px 0 0 0;overflow:visible}
+  .nd{position:absolute;transform:translate(-50%,-50%);text-align:center;font-size:12px;white-space:nowrap}
+  .nd .dot{width:14px;height:14px;border-radius:50%;margin:0 auto 4px;background:#2a2a2a;border:2px solid #aaa}
+  .nd.here .dot{background:#e8a33d;border-color:#ffd08a;width:18px;height:18px;box-shadow:0 0 12px #e8a33d}
+  .nd.fog{opacity:.45}.nd.fog .dot{border-style:dashed}
+  .nd .who{font-size:10.5px;opacity:.75}
+  .legend{position:absolute;right:0;bottom:-2px;font-size:10px;opacity:.5}
+  .note{position:absolute;font:11px system-ui;color:#7fd3ff;text-shadow:none;opacity:.9}
+</style></head>
+<body>
+<div class="q"><b>Option B, close up.</b> Hovering Fern's face opens her full state. Green = just arrived, faded = just left, dashed = a place you can't see into yet.</div>
+<div class="wrap"><div class="stage" id="stage">
+  <div class="top"></div>
+  <div class="chat">
+    <div class="msg"><div class="a"></div><div><div class="n">Alex<small>1:56 AM</small></div><p>I uh I uh wtf <em>im trembling but I pull trough and follow her instructions</em></p></div></div>
+    <div class="msg"><div class="a f"></div><div><div class="n">Fern<small>1:56 AM</small></div><p><em>Her eyes track him as he half-crouches, fingers shaking, and grabs the key off the grass. A small breath leaves her, tight and controlled.</em></p><p>Good. Girth buckle. Left side. Big brass one.</p><p><em>She keeps her gaze fixed on the leather, not his face. She bites her lower lip and waits.</em></p><p>Now the cuffs. Key's small. Two clicks.</p></div></div>
+  </div>
+  <div class="strip">☀ Day 1 · 07:44 · Mistwood Camp</div>
+  <div class="send">Type a message, or /? for help</div>
+
+  <!-- top-left: scene -->
+  <div class="hud scene">
+    <div class="k">☀ Day 1 · Morning</div>
+    <h1>Mistwood Camp</h1>
+    <div class="when">07:44 · cold mist · wet grass · low grey light</div>
+    <div class="now">Fern is cuffed and pinned at the half-struck camp. Alex has the key and maybe ten minutes before someone comes up the road.</div>
+    <div class="threads"><span>Stirring</span> · Perrin's debt · the wandering horse · smoke on the tree line</div>
+  </div>
+
+  <!-- top-right: people -->
+  <div class="hud people">
+    <div class="p"><div class="chips"><span class="chip hot">cuffed</span><span class="chip">humiliated</span><span class="chip">sheet only</span></div><span class="nm">Fern</span><div class="ph" style="background:linear-gradient(135deg,#c9b8a0,#7c9a7a)"></div></div>
+    <div class="card">
+      <div class="k sec">Body</div>
+      <div class="row"><b>Wrists</b>cuffed behind her back</div>
+      <div class="row"><b>Wearing</b>a white sheet, nothing else</div>
+      <div class="row"><b>Position</b>kneeling in the mud</div>
+      <div class="row"><b>Condition</b>cold, sore knees, shivering</div>
+      <div class="k sec">Mind</div>
+      <div class="row"><b>Mood</b>humiliated, keeping a flat face</div>
+      <div class="row"><b>Wants</b>the cuffs off, now</div>
+      <div class="row"><b>Toward you</b>impatient, needs you</div>
+      <div class="k sec">Has</div>
+      <div class="row"><b>Holding</b>nothing (hands bound)</div>
+    </div>
+    <div class="p"><div class="chips"><span class="chip">shaking</span><span class="chip hot">holding the key</span></div><span class="nm">Alex <small style="opacity:.5;font-weight:400">you</small></span><div class="ph" style="background:#4d6f8f"></div></div>
+    <div class="p new"><div class="chips"><span class="chip">just wandered back</span></div><span class="nm">Fern's horse</span><div class="ph" style="background:#ddd"></div></div>
+    <div class="p gone"><div class="chips"><span class="chip">left · toward the ferry</span></div><span class="nm">Perrin</span><div class="ph" style="background:#7a6a4a"></div></div>
+  </div>
+
+  <div class="hud toast">🐾 <b>Bramble</b>, Perrin's dog, trots in from the Trade Road.</div>
+
+  <!-- bottom-left: items -->
+  <div class="hud items">
+    <div class="k">Here &amp; on you</div>
+    <div class="tray">
+      <div class="it hot"><span class="ic">🗝</span><span class="l">Cuff key</span><span class="w">your hand</span></div>
+      <div class="it"><span class="ic">🎒</span><span class="l">Saddlebag</span><span class="w">on the horse</span></div>
+      <div class="it"><span class="ic">🛏</span><span class="l">Bedroll</span><span class="w">unrolled</span></div>
+      <div class="it"><span class="ic">⛓</span><span class="l">Girth strap</span><span class="w">buckled</span></div>
+    </div>
+  </div>
+
+  <!-- bottom-right: map -->
+  <div class="hud map">
+    <div class="k" style="text-align:right">Around you</div>
+    <svg width="350" height="228"><g stroke="rgba(255,255,255,.25)" stroke-width="1.5"><line x1="175" y1="120" x2="60" y2="60"/><line x1="175" y1="120" x2="290" y2="55"/><line x1="175" y1="120" x2="280" y2="190" stroke-dasharray="4 4"/><line x1="175" y1="120" x2="70" y2="185"/></g></svg>
+    <div class="nd here" style="left:175px;top:142px"><div class="dot"></div>Camp<div class="who">Fern · you · horse</div></div>
+    <div class="nd" style="left:60px;top:82px"><div class="dot"></div>Old Trade Road<div class="who">1 rider, far off</div></div>
+    <div class="nd" style="left:290px;top:77px"><div class="dot"></div>The Waystone<div class="who">Perrin (heading there)</div></div>
+    <div class="nd fog" style="left:280px;top:212px"><div class="dot"></div>Tree Line<div class="who">can't see in</div></div>
+    <div class="nd" style="left:70px;top:207px"><div class="dot"></div>Ferry Landing<div class="who">empty</div></div>
+    <div class="legend">15 min to each</div>
+  </div>
+</div></div>
+<script>
+  const fit = () => { const s = document.getElementById('stage'); const k = window.innerWidth / 1600; s.style.transform = `scale(${k})`; s.parentElement.style.height = (900 * k) + 'px'; };
+  addEventListener('resize', fit); fit();
+</script>
+</body></html>
