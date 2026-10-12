@@ -166,7 +166,7 @@ t('scene brief is compact and current', () => {
 t('director prompt carries ids, exchange and the contract, and stays small', () => {
     const p = directorPrompt(world(), 'User: I look for Tom.\nIris: He went to the docks.', { detail: 'high' });
     for (const s of ['HERE market', 'EXITS docks=Docks', 'mara|Mara|fishmonger|market', 'NEW EXCHANGE', 'Upsert by id', 'at most 2 new']) assert.ok(p.includes(s), s);
-    assert.ok(p.length < 3200, `director prompt is ${p.length} chars`);
+    assert.ok(p.length < 3500, `director prompt is ${p.length} chars`);
     assert.match(directorPrompt(world(), '', { allowNewCharacters: false, allowNewItems: false, allowNewLocations: false }), /only by updating existing entries/);
 });
 
@@ -497,6 +497,39 @@ t('a single-location world perceives without throwing', () => {
     const v = perceive(baseWorld({ name: 'Iris' }), 'senses', { userName: 'Alex' });
     assert.deepEqual(v.around, []);
     assert.deepEqual(v.people.map(p => p.label), ['Iris', 'Alex']);
+});
+
+// ---- prompts: facts for the narrator, sheets for the director ----
+t('brief carries visible state, exits with minutes, sounds and the note', () => {
+    const s = flat();
+    s.locations.find(l => l.id === 'kitchen').sound = 'pans clattering';
+    s.locations.find(l => l.id === 'kitchen').soundTick = s.meta.tick;
+    s.player.body.wearing = 'a wet coat';
+    s.scene.note = '{{user}} quietly peeks into Kitchen.';
+    const b = sceneBrief(s);
+    assert.match(b, /Here: Fern \(ranger\) — cuffed, humiliated/);
+    assert.match(b, /Hal \(dock guard; name unknown to \{\{user\}\}\)/);
+    assert.match(b, /\{\{user\}\}: wearing a wet coat; holding Cuff key/);
+    assert.match(b, /Exits: Kitchen 1m, Hall 1m, Garden 2m/);
+    assert.match(b, /Heard: Kitchen — pans clattering/);
+    assert.match(b, /Note: \{\{user\}\} quietly peeks into Kitchen\./);
+    assert.ok(!b.includes('she set this up'), 'secrets are behaviour, not facts to recite');
+});
+
+t('brief stays under 800 characters', () => {
+    for (const s of [world(), flat()]) {
+        const inj = buildInjection(s, { strictAgency: true });
+        assert.ok(inj.length < 800, `injection is ${inj.length} chars`);
+    }
+});
+
+t('director carries routes, state and sheets and stays under 3500', () => {
+    const s = flat();
+    const sheet = 'x'.repeat(400);
+    const p = directorPrompt(s, 'Alex: I pick up the key.\nFern: Two clicks.', { detail: 'high' }, { fern: sheet, you: 'Alex, a nervous courier.' });
+    for (const x of ['EXITS kitchen=Kitchen 1m door', 'hall=Hall 1m open', 'STATE fern: cuffed, humiliated | restraints cuffed behind her back', 'SHEETS', 'fern: xxx', 'you: Alex, a nervous courier.', '"sounds"', '"jump"', '"now"', '"you"', '"body"', 'only for people HERE', 'Sheets win']) assert.ok(p.includes(x), x);
+    assert.ok(!p.includes('x'.repeat(241)), 'sheets are capped at 240 chars');
+    assert.ok(p.length < 3500, `director prompt is ${p.length} chars`);
 });
 
 let failed = 0;

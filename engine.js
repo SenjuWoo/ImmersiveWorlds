@@ -242,24 +242,34 @@ export function atmosphereLine(state) {
     return [WEATHER_LINES[WEATHER_ALIAS[k] || k] || '', TIME_LINES[timeSlot(state)]].filter(Boolean).join(' ');
 }
 
-/** Compact prose brief for the roleplay prompt. */
+/** Compact prose brief for the roleplay prompt: the facts the narrator should reach for. */
 export function sceneBrief(state) {
     const loc = currentLocation(state);
     const c = state.clock;
     const lines = [`Day ${c.day}, ${c.time} · ${c.weather}${c.season !== 'unspecified' ? ` · ${c.season}` : ''} · ${loc.name}${loc.type && loc.type !== 'scene' ? ` (${loc.type})` : ''}`];
     lines.push(atmosphereLine(state));
+    const person = n => {
+        const role = `${n.role}${['active', 'present'].includes(n.status) ? '' : `, ${n.status}`}${n.nameKnown ? '' : '; name unknown to {{user}}'}`;
+        const facts = n.tags.length ? n.tags.join(', ') : [n.body.restraints, n.body.wearing, n.body.position].filter(Boolean).join(', ');
+        const tail = facts ? cleanText(facts, 90) : n.personality ? cleanText(n.personality, 60) : '';
+        return `${n.name} (${role})${tail ? ` — ${tail}` : ''}`;
+    };
     const present = presentNpcs(state).slice(0, 5);
-    if (present.length) {
-        lines.push('Here: ' + present.map(n => `${n.name} (${n.role}${['active', 'present'].includes(n.status) ? '' : `, ${n.status}`})${n.personality ? ` — ${cleanText(n.personality, 70)}` : ''}`).join('; '));
-    }
-    const exits = loc.connections.map(id => state.locations.find(l => l.id === id)?.name).filter(Boolean).slice(0, 6);
-    if (exits.length) lines.push(`Exits: ${exits.join(', ')}`);
+    if (present.length) lines.push(`Here: ${present.map(person).join('; ')}`);
+    const you = state.player;
+    const yours = [you.body.wearing && `wearing ${you.body.wearing}`, you.body.position, you.body.condition, you.holding.length && `holding ${you.holding.join(', ')}`].filter(Boolean);
+    if (yours.length) lines.push(`{{user}}: ${cleanText(yours.join('; '), 160)}`);
+    const exits = Object.entries(loc.routes).map(([id, r]) => [state.locations.find(l => l.id === id), r]).filter(([l]) => l).slice(0, 6);
+    if (exits.length) lines.push(`Exits: ${exits.map(([l, r]) => `${l.name} ${r.minutes}m`).join(', ')}`);
+    const heard = exits.filter(([l, r]) => r.sense === 'door' && l.sound && l.soundTick === state.meta.tick).map(([l]) => `${l.name} — ${l.sound}`);
+    if (heard.length) lines.push(`Heard: ${heard.join('; ')}`);
     const loose = state.items.filter(i => i.locationId === loc.id && !i.ownerId).slice(0, 5).map(i => i.name);
     if (loose.length) lines.push(`Around: ${loose.join(', ')}`);
     const threads = [...state.events, ...state.quests].filter(isOpen).slice(-3).map(t => t.name);
     if (threads.length) lines.push(`Stirring: ${threads.join('; ')}`);
     const recent = state.chronicle.slice(-2).map(x => cleanText(x.text, 140));
     if (recent.length) lines.push(`Lately: ${recent.join(' ')}`);
+    if (state.scene.note) lines.push(`Note: ${state.scene.note}`);
     return lines.join('\n');
 }
 
@@ -270,41 +280,52 @@ export function buildInjection(state, { strictAgency = true } = {}) {
 export const DIRECTOR_SYSTEM = 'You maintain the hidden world state of an ongoing roleplay. Reply with exactly one JSON object and nothing else: no prose, no code fences.';
 
 const PATCH_CONTRACT = `Return one JSON object containing only what changed (omit unchanged keys):
-{"minutes":elapsed scene minutes 0-240,"weather":"","ambient":"1-2 concrete sensory sentences for the current scene","move_to":"location id",
-"locations":[{"id","name","type","description","connections":["id"]}],
-"npcs":[{"id","name","role","appearance","personality","goals":[],"relationship","locationId","status","routine":{"dawn":"loc id","day":"","dusk":"","night":""}}],
+{"minutes":scene minutes passed 0-90,"jump":"sleep|wait|travel|montage — only if the exchange skipped time; allows up to 720 minutes","weather":"","ambient":"1-2 concrete sensory sentences for the current scene","now":"1-2 sentences: what is happening right now, as {{user}} knows it","move_to":"id of the place {{user}} ended up in",
+"you":{"wearing","position","condition","holding":[]},"sounds":{"door exit id":"what {{user}} hears from there"},
+"locations":[{"id","name","type","description","connections":["id"],"routes":{"id":{"minutes":0,"sense":"open|door|none"}}}],
+"npcs":[{"id","name","role","appearance","personality","goals":[],"relationship","locationId","status","nameKnown":true,"routine":{"dawn":"loc id","day":"","dusk":"","night":""},"body":{"restraints","wearing","position","condition"},"mind":{"mood","wants","toward"},"holding":[],"tags":["2-3 short visible facts"]}],
 "items":[{"id","name","type","description","rarity","quantity","ownerId","locationId"}],
 "events":[{"id","name","description","status"}],"quests":[{"id","name","description","status"}],"factions":[{"id","name","description","members":[]}],
 "chronicle":["at most 3 terse continuity facts"]}
-Upsert by id: a known id patches only the fields you send; a new id needs every field and a link (connections, owner/place, locationId and routine). Ids are lowercase-hyphen slugs. status "resolved" or "failed" closes a thread.`;
+Upsert by id: a known id patches only the fields you send; a new id needs every field and a link (connections+routes, owner/place, locationId and routine). Ids are lowercase-hyphen slugs. status "resolved" or "failed" closes a thread. ownerId "player" = {{user}} carries it.
+body/mind/holding/tags only for people HERE; mind is what {{user}} can read from face, words and behaviour (hidden thoughts go in secrets). nameKnown true once {{user}} has learned the name. you = {{user}}'s visible state from their own words only, never feelings. Sheets win: never contradict a sheet. Everyone moves only along routes (EXITS); locationId is where someone heads.`;
 
 function budget(detail) {
     return detail === 'maximum' ? 3 : detail === 'high' ? 2 : 1;
 }
 
-/** Director prompt: only the slice of state the patch can touch, plus the new exchange. */
-export function directorPrompt(state, transcript, policy = {}) {
+const stateLine = n => [n.tags.join(', '), ...BODY.filter(k => n.body[k]).map(k => `${k} ${n.body[k]}`), ...MIND.filter(k => n.mind[k]).map(k => `${k} ${n.mind[k]}`), n.holding.length ? `holding ${n.holding.join(', ')}` : ''].filter(Boolean).join(' | ');
+
+/** Director prompt: only the slice of state the patch can touch, plus the new exchange. `sheets` = {npcId|'you': text}. */
+export function directorPrompt(state, transcript, policy = {}, sheets = {}) {
     const loc = currentLocation(state);
     const here = presentNpcs(state);
     const others = state.npcs.filter(n => !here.includes(n)).sort((a, b) => String(b.lastSeen).localeCompare(String(a.lastSeen))).slice(0, 12);
-    const exits = loc.connections.map(id => state.locations.find(l => l.id === id)).filter(Boolean);
-    const known = state.locations.filter(l => l !== loc && !exits.includes(l)).slice(-12);
-    const items = state.items.filter(i => i.locationId === loc.id || here.some(n => n.id === i.ownerId)).slice(0, 10);
+    const exits = Object.entries(loc.routes).map(([id, r]) => [state.locations.find(l => l.id === id), r]).filter(([l]) => l);
+    const near = new Set([loc, ...exits.map(([l]) => l)]);
+    const known = state.locations.filter(l => !near.has(l)).slice(-12);
+    const items = state.items.filter(i => i.locationId === loc.id || i.ownerId === 'player' || here.some(n => n.id === i.ownerId)).slice(0, 10);
     const threads = [...state.events, ...state.quests].filter(isOpen).slice(-6);
     const n = budget(policy.detail);
     const allow = [policy.allowNewCharacters !== false && 'people', policy.allowNewItems !== false && 'items', policy.allowNewLocations !== false && 'places'].filter(Boolean);
-    const npcLine = x => `${x.id}|${x.name}|${x.role}|${x.locationId}|${x.status}`;
+    const npcLine = x => `${x.id}|${x.name}|${x.role}|${x.travel ? `${x.locationId}→${x.travel.to}` : x.locationId}|${x.status}`;
+    const states = here.map(x => [x.id, stateLine(x)]).filter(([, v]) => v).map(([id, v]) => `STATE ${id}: ${v}`);
+    const you = [...YOU.filter(k => state.player.body[k]).map(k => `${k} ${state.player.body[k]}`), state.player.holding.length ? `holding ${state.player.holding.join(', ')}` : ''].filter(Boolean);
+    const sheetLines = [...here.map(x => x.id), 'you'].filter(id => sheets[id]).map(id => `${id}: ${cleanText(sheets[id], 240)}`);
     return [
         `WORLD ${state.worldName} — ${state.genre}; tone: ${state.tone}.${state.rules.length ? ` Rules: ${state.rules.slice(0, 6).join('; ')}.` : ''}`,
         `NOW day ${state.clock.day} ${state.clock.time}, ${state.clock.weather}. HERE ${loc.id}: ${loc.name} (${loc.type}) — ${cleanText(loc.description, 180)}`,
-        exits.length ? `EXITS ${exits.map(l => `${l.id}=${l.name}`).join(', ')}` : 'EXITS none mapped',
+        exits.length ? `EXITS ${exits.map(([l, r]) => `${l.id}=${l.name} ${r.minutes}m ${r.sense}`).join(', ')}` : 'EXITS none mapped',
         known.length ? `PLACES ${known.map(l => `${l.id}=${l.name}`).join(', ')}` : '',
         `PEOPLE id|name|role|at|status\n${[...here, ...others].map(npcLine).join('\n') || 'none'}`,
+        ...states,
+        you.length ? `YOU ${you.join(' | ')}` : '',
+        sheetLines.length ? `SHEETS\n${sheetLines.join('\n')}` : '',
         items.length ? `ITEMS ${items.map(i => `${i.id}=${i.name}${i.ownerId ? `@${i.ownerId}` : ''}`).join(', ')}` : '',
         threads.length ? `OPEN ${threads.map(t => `${t.id}=${t.name}`).join('; ')}` : '',
         `NEW EXCHANGE\n${transcript || '(none)'}`,
         PATCH_CONTRACT,
-        `Materialize what the exchange implies${allow.length ? ` (${allow.join(', ')}; at most ${n} new per kind)` : ' only by updating existing entries'}. Advance open threads and move people along plausible routines as time passes.${policy.offscreen === false ? ' No off-screen events.' : ' Off-screen change only when causally justified.'} Never invent {{user}}'s actions, words or feelings.`,
+        `Materialize what the exchange implies${allow.length ? ` (${allow.join(', ')}; at most ${n} new per kind)` : ' only by updating existing entries'}, only here or along the exits. Advance open threads; people follow their routines as time passes.${policy.offscreen === false ? ' No off-screen events.' : ' Off-screen change only when causally justified.'} Never invent {{user}}'s actions, words or feelings.`,
     ].filter(Boolean).join('\n');
 }
 
