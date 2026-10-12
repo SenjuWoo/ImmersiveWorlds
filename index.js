@@ -7,12 +7,13 @@ import {
     directorPrompt, bootstrapPrompt, applyPatch, travel, transcriptOf, cleanText, slug, uniqueId, nowIso, isOpen, timeSlot,
     atmosphereLine, weatherIcon, weatherClass,
 } from './engine.js';
+import { movementHint } from './rules.js';
 import { backgroundGenerate, parseJson, errorText, isRejection } from './llm.js';
 import { escapeHtml, openPanel, paintPanel, isPanelOpen, statusSlot, addWandItem, empty } from './kit.js';
 import { perceive, markPerceived, peek, withArticle, REVEAL } from './senses.js';
 import { mountHud, renderHud, sideVisible } from './hud.js';
 
-export const VERSION = '2.1.0';
+export const VERSION = '2.2.0';
 const MODULE_ID = 'immersive_worlds';
 const PROMPT_ID = 'IMMERSIVE_WORLDS_STATE';
 const PANEL_ID = 'iw-panel';
@@ -121,11 +122,19 @@ function startWorld() {
     return state;
 }
 
-/** Character sheets for the director: cards for card characters, the world's profile for side characters, the persona for the user. */
+/** The character cards in this chat: the active card, or every group member. */
+function chatCards() {
+    const c = ctx();
+    if (!c.groupId) return c.characters?.[c.characterId] ? [c.characters[c.characterId]] : [];
+    const group = c.groups?.find(g => String(g.id) === String(c.groupId));
+    return (group?.members || []).map(a => c.characters?.find(ch => ch.avatar === a)).filter(Boolean);
+}
+
+/** Character sheets for the director: main characters (cards) and the persona. Background people get none, to save tokens. */
 function sheetsFor(state) {
     const c = ctx();
     const out = {};
-    for (const n of presentNpcs(state)) {
+    for (const n of presentNpcs(state).filter(x => x.main)) {
         const card = c.characters?.find(ch => ch.avatar && ch.avatar === n.materializedAvatar) ?? (n.role === 'Primary character' ? c.characters?.[c.characterId] : null);
         const text = card ? `${card.description || ''} ${card.personality || ''}` : `${n.appearance} ${n.personality}`;
         if (text.trim()) out[n.id] = cleanText(text, 240);
@@ -276,7 +285,10 @@ function onMessageReceived(index, type) {
     if (!s.autoDirector) { spendNote(); return ctx().saveMetadataDebounced(); }
     if (ctx().chatMetadata[TURN_KEY]?.index === index) return queueDirector(index);
     state.meta.pending += 1;
-    if (state.meta.pending >= Math.max(1, Number(s.directorEvery) || 1)) queueDirector(index);
+    // Comings and goings update the world now, whatever "run every" says, so nobody lingers or vanishes.
+    const prior = ctx().chat.slice(0, index).findLast(m => m.is_user && !m.is_system)?.mes || '';
+    const moving = state.scene.moved || state.scene.peeked.length > 0 || movementHint(state, `${prior}\n${msg.mes}`);
+    if (moving || state.meta.pending >= Math.max(1, Number(s.directorEvery) || 1)) { if (moving) log('movement: updating the world now'); queueDirector(index); }
     else { spendNote(); ctx().saveMetadataDebounced(); }
 }
 
@@ -323,10 +335,10 @@ async function buildWorld() {
         const generated = parseJson(raw);
         if (ctx().getCurrentChatId() !== chatId) return;
         const state = normalizeState({ ...baseWorld(cardInfo()), ...generated, chronicle: [{ at: nowIso(), text: 'The living world took shape.' }], meta: { bootstrapped: true, lastIndex: chat.length - 1 } });
-        const card = cardInfo();
+        const cards = chatCards();
         for (const n of state.npcs) {
-            if (!card.name || n.name.toLowerCase() !== card.name.toLowerCase()) continue;
-            Object.assign(n, { known: true, nameKnown: true, materializedAvatar: n.materializedAvatar || card.avatar || '' });
+            const card = cards.find(ch => ch.name?.toLowerCase() === n.name.toLowerCase());
+            if (card) Object.assign(n, { known: true, nameKnown: true, main: true, materializedAvatar: n.materializedAvatar || card.avatar || '' });
         }
         delete ctx().chatMetadata[TURN_KEY];
         setState(state);
@@ -354,9 +366,18 @@ function travelTo(q) {
     return line;
 }
 
+/** Put the move into the user's own message too, so the story (and the director) see it happen. */
+function prefillAction(line) {
+    const box = document.getElementById('send_textarea');
+    if (!box) return;
+    box.value = box.value.trim() ? `${box.value.trim()} ${line}` : line;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.focus();
+}
+
 function goTo(id) {
     const name = getState()?.locations.find(l => l.id === id)?.name || id;
-    if (travelTo(id)) toastr.info(`Now at ${currentLocation(getState()).name}.`, TITLE);
+    if (travelTo(id)) prefillAction(`*I make my way to ${name}.*`);
     else toastr.warning(`No path from here to ${name}.`, TITLE);
 }
 
@@ -365,6 +386,7 @@ function peekInto(id) {
     if (!state || !peek(state, id)) return;
     setState(state);
     inject();
+    prefillAction(`*I peek into ${state.locations.find(l => l.id === id)?.name || 'the next room'}.*`);
 }
 
 globalThis.immersiveWorlds = Object.freeze({
@@ -694,6 +716,7 @@ async function materializeNpc(id) {
         const res = await fetch('/api/characters/create', { method: 'POST', headers: ctx().getRequestHeaders({ omitContentType: true }), body: form, cache: 'no-cache' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         npc.materializedAvatar = await res.text();
+        npc.main = true;
         setState(state);
         await ctx().getCharacters?.();
         toastr.success(`${npc.name} is now a character card${world ? ' with its own world lorebook' : ''}.`, TITLE);

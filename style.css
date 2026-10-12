@@ -460,3 +460,9 @@ body.iw-ambient[data-iw-weather="storm"]::before, body.iw-ambient[data-iw-weathe
     .iw-hud-toast, .iw-hud-person { transition: none; }
     .iw-hud-toast { transform: none; }
 }
+
+/* Background people: a name and a few tags, quieter than the main cast */
+.iw-hud-person.is-bg { font-size: .88em; opacity: .85; cursor: default; }
+.iw-hud-person.is-bg .iw-hud-who { flex-direction: row-reverse; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.iw-hud-person.is-bg .iw-hud-name { font-weight: 500; }
+.iw-hud-person.is-bg .iw-hud-tag { font-size: .85em; }

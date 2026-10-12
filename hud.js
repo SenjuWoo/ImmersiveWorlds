@@ -28,7 +28,6 @@ let toastTimer = 0;
 const observers = [];
 
 const esc = escapeHtml;
-const hue = id => [...String(id)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
 
 export function mountHud(opts = {}) {
     handlers = opts;
@@ -112,24 +111,23 @@ function sceneHtml(s) {
         ${s.threads.length ? `<div class="iw-hud-threads"><span>Stirring</span> · ${s.threads.map(esc).join(' · ')}</div>` : ''}`;
 }
 
+// A portrait only when there is one; background people stay a name and tags.
 function face(p) {
     const url = handlers.avatarUrl?.(p) || '';
-    if (url) return `<img class="iw-hud-face" src="${esc(url)}" alt="" loading="lazy">`;
-    const initial = /^(a|an|the|someone)\s/i.test(p.label) ? '?' : (p.label[0] || '?').toUpperCase();
-    return `<span class="iw-hud-face" style="--iw-hue:${hue(p.id)}" aria-hidden="true">${esc(initial)}</span>`;
+    return url ? `<img class="iw-hud-face" src="${esc(url)}" alt="" loading="lazy">` : '';
 }
 
 function cardHtml(p) {
     const rows = (title, list) => list.length ? `<div class="iw-hud-sec">${title}</div>${list.map(([k, v]) => `<div class="iw-hud-row"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}` : '';
     const has = p.holding.length ? [['Holding', p.holding.join(', ')]] : [];
-    const secrets = p.secrets?.length ? [['Hidden', p.secrets.join(' · ')]] : [];
-    const html = rows('Body', p.body) + rows('Mind', p.mind) + rows('Has', has) + rows('Truth', secrets);
+    const truth = p.truth?.length ? [['Hidden', p.truth.join(' · ')]] : [];
+    const html = rows('Body', p.body) + rows('Mind', p.mind) + rows('Has', has) + rows('Truth', truth);
     return html ? `<div class="iw-hud-card">${html}</div>` : '';
 }
 
 function peopleHtml(people, left) {
     const rows = people.map(p => `
-        <div class="iw-hud-person ${p.isNew ? 'is-new' : ''} ${p.isYou ? 'is-you' : ''} ${pinned === p.id ? 'is-open' : ''}" data-iw-person="${esc(p.id)}" tabindex="0">
+        <div class="iw-hud-person ${p.main ? '' : 'is-bg'} ${p.isNew ? 'is-new' : ''} ${p.isYou ? 'is-you' : ''} ${pinned === p.id ? 'is-open' : ''}" data-iw-person="${esc(p.id)}" tabindex="0">
             <span class="iw-hud-who">
                 <span class="iw-hud-name">${esc(p.label)}${p.isYou ? ' <small>you</small>' : ''}</span>
                 <span class="iw-hud-tags">${p.tags.map((t, i) => `<span class="iw-hud-tag ${i === 0 && !p.isYou ? 'is-hot' : ''}">${esc(t)}</span>`).join('')}</span>

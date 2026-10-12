@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.0 — 2026-10-12
+
+From play-testing 2.1.
+
+- Only what you sense now means what your character actually noticed: covered or unseen things stay off the HUD, and minds are your read of people ("wants: some time alone?"), not their true intent. The truth goes to a hidden line the narrator keeps and the Everything mode shows.
+- Main cast vs background: character cards keep full state and a portrait; people the world invents are background (a name and a few tags, no placeholder portrait) and cost far fewer tokens.
+- Go and Peek put the action into your message box ("*I make my way to the Creek.*"), so the story sees you move.
+- A move you chose can no longer be undone by the next world update, even if the narrator writes you somewhere else; moving clears your old position.
+- Comings and goings (someone leaving, arriving, a known place named) update the world right away, whatever "Run every" is set to.
+- The director is told that animals and people are never items, and only your own message may move you.
+- Tests: 63.
+
 ## 2.1.0 — 2026-10-12
 
 The immersion update. Worlds from 2.0 load unchanged.

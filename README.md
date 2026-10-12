@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ee6c5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.1.0"><img src="https://img.shields.io/badge/release-v2.1.0-8f9aa6?labelColor=0d0f11" alt="v2.1.0"></a>
+  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.2.0"><img src="https://img.shields.io/badge/release-v2.2.0-8f9aa6?labelColor=0d0f11" alt="v2.2.0"></a>
   <img src="https://img.shields.io/badge/SillyTavern-%E2%89%A5%201.18.0-8f9aa6?labelColor=0d0f11" alt="SillyTavern 1.18+">
 </p>
 
@@ -39,7 +39,9 @@ Immersive Worlds keeps that state in the chat and gives the model a short scene 
 ## What you get
 
 - **Immersion HUD** in the empty space beside the chat: the scene top-left (place, time, weather, what is happening right now), the people here top-right (2–3 state tags each; hover for body, mind and what they hold), items bottom-left, and a map of the places around you bottom-right
-- **Only what your character knows**: strangers show as "a dock guard" until someone says their name; next door is *seen* through an open way, *heard* through a door ("two voices arguing") or blank behind a wall; **Peek** through a door; a setting widens it to everything nearby or everything (secrets too)
+- **Only what your character knows**: people's state is what you actually noticed: if you looked away or something is covered, it isn't there, and their mind is your read of them ("wants: some time alone?"), not their true intent; strangers show as "a dock guard" until someone says their name; next door is *seen* through an open way, *heard* through a door ("two voices arguing") or blank behind a wall; **Peek** through a door; a setting widens it to everything nearby or everything (secrets too)
+- **Main cast and background**: character cards are the main cast (portrait, full card, a hidden truth the narrator keeps); everyone the world invents is a background person (a name and a few tags, no portrait), which keeps prompts small
+- **Your moves are yours**: Go writes the move into your message, and nothing the narrator writes can move you somewhere you didn't go; comings and goings update the world right away, whatever "Run every" says
 - **World logic in code**: every path has a walking time, moving follows the paths and costs that time, people walk instead of teleporting ("heading to the Waystone"), time only jumps when the story sleeps, waits or travels, and new things appear only where the story is
 - **Living world per chat**, created only when you ask for one (chats without a world cost nothing)
 - **Build world**: one background call drafts places, people, items, factions and threads from the character card, scenario and lorebook. **Start** seeds a minimal world with no model call
@@ -74,7 +76,7 @@ Optional companion: [Immersive Adventures](https://github.com/SenjuWoo/Immersive
 1. Open a chat, then **wand menu → Living World** (or `/iw`).
 2. **Build world** (AI draft) or **Start** (minimal, no call).
 3. Roleplay. After each reply the director updates the world in the background; the HUD follows.
-4. **HUD**: hover or click a face for the full card; click an item for its details; click a place on the map for **Go** (walks there, time passes) or **Peek** (through a door, 1 minute). Click the place name to open the panel. Arrivals glow green, departures fade with where they went.
+4. **HUD**: hover or click a main character for the full card; click an item for its details; click a place on the map for **Go** (walks there, time passes, and puts "*I make my way to …*" in your message box to send or edit) or **Peek** (through a door, 1 minute, same idea). Click the place name to open the panel. Arrivals glow green, departures fade with where they went.
 5. **Panel** (wand menu): **People**: Inspect, Forge, Add, Make card. **World**: travel by clicking an exit. **Manage**: Update now, Edit identity, Rebuild, Export / Import, Remove.
 
 The HUD needs free space beside the chat (wide windows, or a narrower Chat Width in User Settings). With little space it shrinks to faces and icons; on phones it steps aside for the status strip and panel. A side hides while SillyTavern's drawer on that side is open.
@@ -116,7 +118,7 @@ The scene brief sits at depth 1 (`In-chat @ depth`), so everything above it, inc
 | Show time and place above the chat input | on | Status strip |
 | Tint the screen by time of day | on | Ambient wash |
 | Show the HUD | on | The floating HUD beside the chat (the status strip hides while it shows) |
-| What the HUD reveals | Only what I sense | Or *Everything nearby*, or *Everything (secrets too)* |
+| What the HUD reveals | Only what I sense | Or *Everything nearby*, or *Everything* (real names, hidden truths, secrets) |
 | Connection profile | current | Profile for background calls |
 | Skip model reasoning | on | Reasoning off for world updates (faster, cheaper) |
 | Pause the director if the API rejects its request | on | Stops retry storms on providers that refuse the call |
@@ -129,7 +131,7 @@ The scene brief sits at depth 1 (`In-chat @ depth`), so everything above it, inc
 
 ## Log
 
-The browser console (F12 → Console) always shows `[Immersive Worlds] v2.1.0 ready` and every failure with its cause. Turn on **Debug log** in the settings for the resolved settings at startup, every director pass, and every move or change the world rules rejected (with the reason); it logs at the *Verbose* level, so enable that level in the console filter.
+The browser console (F12 → Console) always shows `[Immersive Worlds] v2.2.0 ready` and every failure with its cause. Turn on **Debug log** in the settings for the resolved settings at startup, every director pass, and every move or change the world rules rejected (with the reason); it logs at the *Verbose* level, so enable that level in the console filter.
 
 ## Project map
 
@@ -153,7 +155,7 @@ State lives in chat metadata key `immersive_worlds_state_v1`; v1 and v2 worlds l
 
 Verified:
 
-- `node tests/selftest.js` — 55 tests: paths and walking time, rejected moves, people in transit, time caps, creation only where the story is, state only for people present, perception per path openness and reveal mode, names and threads hidden until known, Peek, migration, prompt sizes
+- `node tests/selftest.js` — 63 tests: paths and walking time, rejected moves, user-chosen moves the director cannot undo, movement detection, people in transit, time caps, creation only where the story is, main vs background people, perceived state and hidden truth, state only for people present, perception per path openness and reveal mode, names and threads hidden until known, Peek, migration, prompt sizes
 - End-to-end in an isolated SillyTavern 1.19.0 against a mock model: HUD in all four corners at 1920, 1600, 1500 and 1280 px; hover cards; arrival glow and toast; a heard room, Peek and Go; a two-hop move charged its walking time; a bogus move rejected and logged; a person walking in over time; a drawer hiding its side; reveal modes; delete rewinding the HUD; no unknown name or secret in the default HUD; world note ~590 chars, director ~3,100 chars
 - Reload persistence of the world and the HUD; Forge, Make card and swipe browsing were verified in 2.0.0 (their host code did not change; not re-run this round)
 

@@ -1,12 +1,17 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-12 · v2.1.0 · branch `main`
+Updated 2026-10-12 · v2.2.0 · branch `main`
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)
 - Sibling extension sharing `kit.js`, `llm.js` and the kit block of `style.css` byte-for-byte: `../ImmersiveAdventures` (private repo). Edit both copies together; `tests/selftest.js` fails if they drift.
-- Last known good: git tag `v2.1.0` / GitHub release zip; previous `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- Last known good: git tag `v2.2.0` / GitHub release zip; previous `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
+
+## Verified (2026-10-12, 2.2.0)
+- `node tests/selftest.js` 63/63
+- Root cause of the 2.1 "teleported back to camp" report confirmed from the user's chat backup: Go lived only in a weak note + stale position; the next director pass used move_to from the narration. Fixed: Go prefills the message, director move_to is rejected right after a user move, old position cleared.
+- E2E (isolated ST 1.19, dev worktree as user extension, mock, Run every = 3): director ran on reply 1 because the reply named a place; background person kept tags only and has no portrait; main card shows perceived mind, hidden truth only in Everything mode; Go prefilled the message, the update ran at once and its move_to back was rejected; injection carried the strong note, no stale position.
 
 ## Verified (2026-10-12, 2.1.0)
 - `node tests/selftest.js` 55/55
