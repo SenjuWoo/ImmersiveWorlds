@@ -16,6 +16,15 @@
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="showStatus"><span>Show time and place above the chat input</span></label>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="ambientEffects"><span>Tint the screen by time of day</span></label>
 
+            <h4 class="imx-h">HUD</h4>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="hud"><span>Show the HUD in the space beside the chat (scene, people, items, map)</span></label>
+            <div class="imx-field">
+                <label for="iw-reveal">What the HUD reveals</label>
+                <select id="iw-reveal" class="text_pole" data-iw-setting="hudReveal">
+                    <option value="senses">Only what I sense</option><option value="nearby">Everything nearby</option><option value="all">Everything (secrets too)</option>
+                </select>
+            </div>
+
             <h4 class="imx-h">Director</h4>
             <div class="imx-field" id="iw-profile-row">
                 <label for="iw-profile">Connection profile <small>(empty = current connection; a fast cheap model is ideal)</small></label>

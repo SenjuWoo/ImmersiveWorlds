@@ -1,16 +1,16 @@
 {
-  "display_name": "Immersive Worlds: Living Cities",
-  "loading_order": 6,
-  "requires": [],
-  "optional": [],
-  "js": "index.js",
-  "css": "style.css",
-  "author": "SenjuWoo",
-  "version": "2.0.0",
-  "homePage": "https://github.com/SenjuWoo/ImmersiveWorlds",
-  "minimum_client_version": "1.18.0",
-  "generate_interceptor": "immersiveWorldsGenerationInterceptor",
-  "hooks": {
-    "activate": "init"
-  }
+    "display_name": "Immersive Worlds: Living Cities",
+    "loading_order": 6,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "SenjuWoo",
+    "version": "2.1.0",
+    "homePage": "https://github.com/SenjuWoo/ImmersiveWorlds",
+    "minimum_client_version": "1.18.0",
+    "generate_interceptor": "immersiveWorldsGenerationInterceptor",
+    "hooks": {
+        "activate": "init"
+    }
 }

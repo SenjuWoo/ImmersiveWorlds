@@ -1,6 +1,7 @@
 // Immersive Worlds: Living Cities — SillyTavern host. Pure logic lives in engine.js.
 import { extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { createWorldInfoEntry } from '../../../world-info.js';
+import { user_avatar } from '../../../personas.js';
 import {
     STATE_KEY, TURN_KEY, DIRECTOR_SYSTEM, normalizeState, baseWorld, currentLocation, presentNpcs, sceneBrief, buildInjection,
     directorPrompt, bootstrapPrompt, applyPatch, travel, transcriptOf, cleanText, slug, uniqueId, nowIso, isOpen, timeSlot,
@@ -8,8 +9,10 @@ import {
 } from './engine.js';
 import { backgroundGenerate, parseJson, errorText, isRejection } from './llm.js';
 import { escapeHtml, openPanel, paintPanel, isPanelOpen, statusSlot, addWandItem, empty } from './kit.js';
+import { perceive, markPerceived, peek, withArticle, REVEAL } from './senses.js';
+import { mountHud, renderHud, sideVisible } from './hud.js';
 
-export const VERSION = '2.0.0';
+export const VERSION = '2.1.0';
 const MODULE_ID = 'immersive_worlds';
 const PROMPT_ID = 'IMMERSIVE_WORLDS_STATE';
 const PANEL_ID = 'iw-panel';
@@ -38,6 +41,8 @@ const DEFAULTS = Object.freeze({
     maxLocations: 36,
     showStatus: true,
     ambientEffects: true,
+    hud: true,
+    hudReveal: 'senses',
     suspendDirectorOnApiError: true,
     debug: false,
 });
@@ -84,11 +89,12 @@ function policy() {
 
 const getState = () => ctx().chatMetadata?.[STATE_KEY] || null;
 
-function setState(state) {
+function setState(state, { quiet = false } = {}) {
+    markPerceived(state);
     ctx().chatMetadata[STATE_KEY] = state;
     state.meta.updatedAt = nowIso();
     ctx().saveMetadataDebounced();
-    refresh();
+    refresh({ quiet });
 }
 
 function cardInfo() {
@@ -113,6 +119,19 @@ function startWorld() {
     log('world started', state.worldName);
     setState(state);
     return state;
+}
+
+/** Character sheets for the director: cards for card characters, the world's profile for side characters, the persona for the user. */
+function sheetsFor(state) {
+    const c = ctx();
+    const out = {};
+    for (const n of presentNpcs(state)) {
+        const card = c.characters?.find(ch => ch.avatar && ch.avatar === n.materializedAvatar) ?? (n.role === 'Primary character' ? c.characters?.[c.characterId] : null);
+        const text = card ? `${card.description || ''} ${card.personality || ''}` : `${n.appearance} ${n.personality}`;
+        if (text.trim()) out[n.id] = cleanText(text, 240);
+    }
+    try { const persona = c.getCharacterCardFields?.()?.persona; if (persona) out.you = cleanText(persona, 240); } catch { /* no persona */ }
+    return out;
 }
 
 function lore() {
@@ -209,7 +228,7 @@ async function runDirector(index, { manual = false } = {}) {
 
     setBusy(true);
     try {
-        const prompt = c.substituteParams(directorPrompt(state, transcript, policy()));
+        const prompt = c.substituteParams(directorPrompt(state, transcript, policy(), sheetsFor(state)));
         log('director prompt', prompt.length, 'chars');
         const raw = await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.directorTokens, 400, 8192), profileId: s.profileId, temperature: s.temperature, noReasoning: s.noReasoning });
         const patch = parseJson(raw);
@@ -225,6 +244,7 @@ async function runDirector(index, { manual = false } = {}) {
             ctx().saveChat?.();
         }
         log('director patch', patch);
+        if (next.meta.rejected.length) log('rejected by world rules', next.meta.rejected);
         setState(next);
         inject();
     } catch (error) {
@@ -300,6 +320,8 @@ async function buildWorld() {
         const generated = parseJson(raw);
         if (ctx().getCurrentChatId() !== chatId) return;
         const state = normalizeState({ ...baseWorld(cardInfo()), ...generated, chronicle: [{ at: nowIso(), text: 'The living world took shape.' }], meta: { bootstrapped: true, lastIndex: chat.length - 1 } });
+        const cardName = String(cardInfo().name || '').toLowerCase();
+        for (const n of state.npcs) if (cardName && n.name.toLowerCase() === cardName) Object.assign(n, { known: true, nameKnown: true });
         delete ctx().chatMetadata[TURN_KEY];
         setState(state);
         inject();
@@ -322,7 +344,21 @@ function travelTo(q) {
     if (!state) return '';
     const line = travel(state, q);
     if (line) { setState(state); inject(); }
+    else log('travel refused: no route to', q);
     return line;
+}
+
+function goTo(id) {
+    const name = getState()?.locations.find(l => l.id === id)?.name || id;
+    if (travelTo(id)) toastr.info(`Now at ${currentLocation(getState()).name}.`, TITLE);
+    else toastr.warning(`No path from here to ${name}.`, TITLE);
+}
+
+function peekInto(id) {
+    const state = getState();
+    if (!state || !peek(state, id)) return;
+    setState(state);
+    inject();
 }
 
 globalThis.immersiveWorlds = Object.freeze({
@@ -341,10 +377,24 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || l
 const sectionLabel = (text, extra = '') => `<div class="imx-label"><span>${escapeHtml(text)}</span>${extra}</div>`;
 const count = n => `<span>${n}</span>`;
 
-function refresh() {
+function refresh({ quiet = false } = {}) {
+    paintHud(quiet);
     paintStatus();
     applyAmbient();
     if (isPanelOpen(PANEL_ID)) renderPanel();
+}
+
+function paintHud(quiet = false) {
+    const s = settings();
+    const state = getState();
+    const mode = REVEAL.includes(s.hudReveal) ? s.hudReveal : 'senses';
+    renderHud(s.enabled && s.hud && state ? perceive(state, mode, { userName: ctx().name1 }) : null, { quiet });
+}
+
+function avatarUrl(person) {
+    const c = ctx();
+    if (person.isYou) return user_avatar ? c.getThumbnailUrl('persona', user_avatar) : '';
+    return person.avatar ? c.getThumbnailUrl('avatar', person.avatar) : '';
 }
 
 function paintStatus() {
@@ -352,12 +402,14 @@ function paintStatus() {
     if (!slot) return;
     const s = settings();
     const state = getState();
+    const busyChip = busy ? `<span class="imx-chip" title="${escapeHtml(busyLabel)}"><i class="fa-solid fa-feather-pointed fa-fade"></i></span>` : '';
     if (!s.enabled || !s.showStatus || !state) { slot.innerHTML = ''; return; }
+    if (sideVisible('left')) { slot.innerHTML = busyChip; return; } // the HUD already shows time and place
     const loc = currentLocation(state);
     slot.innerHTML = `
         <button type="button" class="imx-chip" data-iw-open="world" title="${escapeHtml(state.clock.weather)} · ${escapeHtml(atmosphereLine(state))}"><i class="fa-solid ${weatherIcon(state)}"></i><span>Day ${state.clock.day} · ${escapeHtml(state.clock.time)}</span></button>
         <button type="button" class="imx-chip" data-iw-open="world" title="${escapeHtml(cleanText(loc.description, 200))}"><i class="fa-solid fa-location-dot"></i><span>${escapeHtml(loc.name)}</span></button>
-        ${busy ? `<span class="imx-chip" title="${escapeHtml(busyLabel)}"><i class="fa-solid fa-feather-pointed fa-fade"></i></span>` : ''}`;
+        ${busyChip}`;
 }
 
 function applyAmbient() {
@@ -409,7 +461,7 @@ function threadCards(list) {
 
 function worldTab(state) {
     const loc = currentLocation(state);
-    const exits = loc.connections.map(id => state.locations.find(l => l.id === id)).filter(Boolean);
+    const exits = Object.entries(loc.routes).map(([id, r]) => ({ ...state.locations.find(l => l.id === id), minutes: r.minutes })).filter(l => l.id);
     const here = presentNpcs(state);
     const quests = state.quests.filter(isOpen);
     const events = state.events.filter(isOpen);
@@ -423,8 +475,8 @@ function worldTab(state) {
             ${here.length ? `<div class="imx-row">${here.map(n => `<button type="button" class="imx-pill" data-iw="inspect" data-id="${escapeHtml(n.id)}"><i class="fa-solid fa-user"></i>${escapeHtml(n.name)}</button>`).join('')}</div>` : ''}
         </section>
         <section class="imx-section">
-            ${sectionLabel('Go to', `<span class="imx-hint">15 min</span>`)}
-            <div class="imx-row">${exits.length ? exits.map(l => `<button type="button" class="imx-pill" data-iw="travel" data-id="${escapeHtml(l.id)}"><i class="fa-solid fa-route"></i>${escapeHtml(l.name)}</button>`).join('') : '<span class="imx-meta">No mapped exits yet. Mention a place and the director will chart it.</span>'}</div>
+            ${sectionLabel('Go to')}
+            <div class="imx-row">${exits.length ? exits.map(l => `<button type="button" class="imx-pill" data-iw="travel" data-id="${escapeHtml(l.id)}"><i class="fa-solid fa-route"></i>${escapeHtml(l.name)} · ${l.minutes}m</button>`).join('') : '<span class="imx-meta">No mapped exits yet. Mention a place and the director will chart it.</span>'}</div>
         </section>
         <section class="imx-section">${sectionLabel('Quests', count(quests.length))}${threadCards(quests) || empty('No threads yet. They appear as the story implies them.')}</section>
         ${events.length ? `<section class="imx-section">${sectionLabel('Stirring', count(events.length))}${threadCards(events)}</section>` : ''}
@@ -495,6 +547,7 @@ function manageTab(state) {
         <section class="imx-section">
             ${sectionLabel('Quick toggles')}
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="autoDirector" ${s.autoDirector ? 'checked' : ''}><span>Update after each reply</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="hud" ${s.hud ? 'checked' : ''}><span>Show the HUD beside the chat</span></label>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="ambientEffects" ${s.ambientEffects ? 'checked' : ''}><span>Time-of-day tint</span></label>
             <span class="imx-meta">All settings: Extensions → Immersive Worlds. Turn ${state.meta.tick} · v${VERSION}</span>
         </section>`;
@@ -576,9 +629,6 @@ Return {"npcs":[{"id","name","role","appearance","personality","goals":[],"secre
         setBusy(false);
     }
 }
-
-// "lamplighter" -> "a lamplighter"; "the harbormaster" stays as written.
-const withArticle = role => !role ? 'someone' : /^(a|an|the|my|his|her|their)\s/i.test(role) ? role : `${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${role}`;
 
 function npcDescription(state, npc) {
     const loc = state.locations.find(x => x.id === npc.locationId);
@@ -689,7 +739,7 @@ async function onAction(action, el) {
     switch (action) {
         case 'build': return buildWorld();
         case 'start': return startWorld();
-        case 'travel': return travelTo(id) && toastr.info(`Now at ${currentLocation(getState()).name}.`, TITLE);
+        case 'travel': return goTo(id);
         case 'inspect': return inspectNpc(id);
         case 'materialize': return materializeNpc(id);
         case 'forge': return forgePeople();
@@ -799,9 +849,9 @@ function onChatChanged() {
     epoch += 1;
     queued = null;
     const md = ctx().chatMetadata;
-    if (md?.[STATE_KEY]) md[STATE_KEY] = normalizeState(md[STATE_KEY]);
+    if (md?.[STATE_KEY]) markPerceived(md[STATE_KEY] = normalizeState(md[STATE_KEY]));
     inject();
-    refresh();
+    refresh({ quiet: true });
 }
 
 export async function init() {
@@ -809,6 +859,7 @@ export async function init() {
     settings();
     await mountSettings();
     bindUi();
+    mountHud({ onGo: goTo, onPeek: peekInto, onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
     addWandItem({ id: 'iw-wand', icon: 'fa-compass', label: 'Living World', onClick: () => openWorldPanel() });
     registerCommands();
     registerMacros();
