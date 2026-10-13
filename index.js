@@ -10,8 +10,9 @@ import {
 import { movementHint } from './rules.js';
 import { backgroundGenerate, parseJson, errorText, isRejection } from './llm.js';
 import { escapeHtml, openPanel, paintPanel, isPanelOpen, statusSlot, addWandItem, empty } from './kit.js';
-import { perceive, markPerceived, peek, withArticle, REVEAL } from './senses.js';
-import { mountHud, renderHud, sideVisible } from './hud.js';
+import { perceive, markPerceived, peek, withArticle, labelOf, REVEAL } from './senses.js';
+import { mountHud, renderHud, sideVisible, KIND_ICON } from './hud.js';
+import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
 export const VERSION = '2.2.0';
 const MODULE_ID = 'immersive_worlds';
@@ -89,6 +90,10 @@ function policy() {
 // ---------------------------------------------------------------------------
 
 const getState = () => ctx().chatMetadata?.[STATE_KEY] || null;
+
+// What the user wrote or removed in dossiers: its own key, so swipes and deletes never rewind it.
+const getNotes = () => { const md = ctx().chatMetadata; return md ? (md[NOTES_KEY] ??= normNotes(null)) : normNotes(null); };
+const saveNotes = () => { ctx().saveMetadataDebounced(); refresh(); };
 
 function setState(state, { quiet = false } = {}) {
     markPerceived(state);
@@ -416,7 +421,7 @@ function paintHud(quiet = false) {
     const s = settings();
     const state = getState();
     const mode = REVEAL.includes(s.hudReveal) ? s.hudReveal : 'senses';
-    renderHud(s.enabled && s.hud && state ? perceive(state, mode, { userName: ctx().name1 }) : null, { quiet });
+    renderHud(s.enabled && s.hud && state ? perceive(state, mode, { userName: ctx().name1, notes: getNotes() }) : null, { quiet });
 }
 
 function avatarUrl(person) {
@@ -522,6 +527,7 @@ function npcCard(state, n) {
         <p class="imx-text imx-clamp">${escapeHtml(n.personality || n.appearance || 'Not yet known.')}</p>
         <div class="imx-actions">
             <div class="menu_button menu_button_icon" data-iw="inspect" data-id="${escapeHtml(n.id)}"><i class="fa-solid fa-eye"></i><span>Inspect</span></div>
+            <div class="menu_button menu_button_icon" data-iw="dossier" data-id="${escapeHtml(n.id)}" title="What you have learned about ${escapeHtml(n.name)}"><i class="fa-solid fa-book-open"></i><span>Dossier</span></div>
             <div class="menu_button menu_button_icon ${n.materializedAvatar ? 'disabled' : ''}" data-iw="${n.materializedAvatar ? '' : 'materialize'}" data-id="${escapeHtml(n.id)}" title="Create a reusable character card with a world lorebook"><i class="fa-solid fa-id-card"></i><span>${n.materializedAvatar ? 'Has card' : 'Make card'}</span></div>
         </div>
     </div>`;
@@ -602,6 +608,45 @@ async function inspectNpc(id) {
     const rows = [['Appearance', n.appearance], ['Personality', n.personality], ['Relationship', n.relationship], ['Goals', n.goals.join(' · ')], ['Routine', routine], ['Carries', n.inventory.join(', ')]];
     const html = `<div class="imx-dialog"><h3>${escapeHtml(n.name)}</h3><div class="imx-row"><span class="imx-pill">${escapeHtml(n.role)}</span><span class="imx-pill">${escapeHtml(n.status)}</span><span class="imx-pill"><i class="fa-solid fa-location-dot"></i>${escapeHtml(where)}</span></div>${rows.filter(([, v]) => v).map(([k, v]) => `<div><div class="imx-label">${k}</div><p class="imx-text">${escapeHtml(v)}</p></div>`).join('')}</div>`;
     await ctx().callGenericPopup(html, ctx().POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
+}
+
+function dossierHtml(state, id) {
+    const n = state.npcs.find(x => x.id === id);
+    const mode = REVEAL.includes(settings().hudReveal) ? settings().hudReveal : 'senses';
+    const facts = mergedFacts(n, getNotes());
+    const where = state.locations.find(l => l.id === n.locationId)?.name || 'somewhere';
+    return `<h3>${escapeHtml(labelOf(n, mode))}</h3>
+        <div class="imx-row"><span class="imx-pill">${escapeHtml(n.role)}</span><span class="imx-pill"><i class="fa-solid fa-location-dot"></i>${escapeHtml(where)}</span></div>
+        <div class="imx-label"><span>What you know</span></div>
+        ${facts.length ? facts.map(f => `<div class="imx-fact"><i class="fa-solid ${KIND_ICON[f.k] ?? KIND_ICON.other}" title="${escapeHtml(f.k)}"></i><span>${escapeHtml(f.t)}</span><small>${escapeHtml(f.at)}</small><button type="button" class="menu_button" data-iw="fact-del" data-key="${escapeHtml(f.key)}" title="Remove"><i class="fa-solid fa-xmark"></i></button></div>`).join('') : empty('Nothing learned yet. It fills in as the story shows you who they are.')}
+        <div class="imx-label"><span>Your note</span></div>
+        <div class="imx-actions"><input class="text_pole" data-field="note" maxlength="160" placeholder="e.g. ask about the harbour"><div class="menu_button menu_button_icon" data-iw="note-add"><i class="fa-solid fa-plus"></i><span>Add</span></div></div>`;
+}
+
+async function openDossier(id) {
+    const state = getState();
+    if (!state?.npcs.some(n => n.id === id)) return;
+    const box = document.createElement('div');
+    box.className = 'imx-dialog';
+    box.dataset.npc = id;
+    box.innerHTML = dossierHtml(state, id);
+    await ctx().callGenericPopup(box, ctx().POPUP_TYPE.TEXT, '', { allowVerticalScrolling: true });
+}
+
+function editDossier(action, el) {
+    const box = el.closest('[data-npc]');
+    const state = getState();
+    if (!box || !state) return;
+    const store = getNotes();
+    if (action === 'fact-del') {
+        const key = el.dataset.key || '';
+        if (key.startsWith('note|')) removeNote(store, box.dataset.npc, key.slice(5)); else hideFact(store, key);
+    } else {
+        const input = box.querySelector('[data-field="note"]');
+        if (!addNote(store, box.dataset.npc, input?.value, `D${state.clock.day} ${state.clock.time}`)) return;
+    }
+    saveNotes();
+    box.innerHTML = dossierHtml(state, box.dataset.npc);
 }
 
 async function addNpc() {
@@ -730,6 +775,7 @@ async function removeWorld() {
     if (!await c.callGenericPopup('Remove the living world from this chat? Places, people, items and history are deleted. Export first to keep a copy.', c.POPUP_TYPE.CONFIRM)) return;
     delete c.chatMetadata[STATE_KEY];
     delete c.chatMetadata[TURN_KEY];
+    delete c.chatMetadata[NOTES_KEY];
     epoch += 1;
     inject();
     await c.saveMetadata();
@@ -770,6 +816,9 @@ async function onAction(action, el) {
         case 'start': return startWorld();
         case 'travel': return goTo(id);
         case 'inspect': return inspectNpc(id);
+        case 'dossier': return openDossier(id);
+        case 'fact-del':
+        case 'note-add': return editDossier(action, el);
         case 'materialize': return materializeNpc(id);
         case 'forge': return forgePeople();
         case 'add-npc': return addNpc();
@@ -879,6 +928,7 @@ function onChatChanged() {
     queued = null;
     const md = ctx().chatMetadata;
     if (md?.[STATE_KEY]) markPerceived(md[STATE_KEY] = normalizeState(md[STATE_KEY]));
+    if (md?.[NOTES_KEY]) md[NOTES_KEY] = normNotes(md[NOTES_KEY]);
     inject();
     refresh({ quiet: true });
 }
@@ -888,7 +938,7 @@ export async function init() {
     settings();
     await mountSettings();
     bindUi();
-    mountHud({ onGo: goTo, onPeek: peekInto, onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
+    mountHud({ onGo: goTo, onPeek: peekInto, onDossier: openDossier, onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
     addWandItem({ id: 'iw-wand', icon: 'fa-compass', label: 'Living World', onClick: () => openWorldPanel() });
     registerCommands();
     registerMacros();

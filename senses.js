@@ -1,5 +1,6 @@
 // What the user's character perceives: the HUD reads this, never the raw world. Pure, node-testable.
 import { currentLocation, presentNpcs, timeSlot, weatherIcon, atmosphereLine, isOpen, passTime, BODY, MIND, YOU } from './engine.js';
+import { mergedFacts } from './dossier.js';
 
 export const REVEAL = ['senses', 'nearby', 'all'];
 const LABELS = { restraints: 'Restraints', wearing: 'Wearing', position: 'Position', condition: 'Condition', mood: 'Mood', wants: 'Wants', toward: 'Toward you' };
@@ -44,7 +45,7 @@ function soundOf(state, loc) {
 }
 
 /** The HUD's view model. `mode`: senses (default) | nearby | all. */
-export function perceive(state, mode = 'senses', { userName = '' } = {}) {
+export function perceive(state, mode = 'senses', { userName = '', notes = null } = {}) {
     const here = currentLocation(state);
     const all = mode === 'all';
     const present = presentNpcs(state);
@@ -66,6 +67,7 @@ export function perceive(state, mode = 'senses', { userName = '' } = {}) {
             mind: n.main ? pairs(n.mind, MIND) : [],
             holding: n.main ? n.holding : [],
             avatar: n.materializedAvatar,
+            learned: mergedFacts(n, notes).slice(-6).map(f => ({ k: f.k, t: f.t, own: f.own, fresh: !f.own && state.scene.fresh.some(x => x.id === n.id && x.t === f.t) })),
             isNew: state.scene.arrived.includes(n.id),
             isYou: false,
             ...(truth.length ? { truth } : {}),
@@ -75,7 +77,7 @@ export function perceive(state, mode = 'senses', { userName = '' } = {}) {
     const people = [
         ...present.filter(n => n.main).map(row),
         {
-            id: 'you', label: userName || 'You', main: true, isYou: true, isNew: false, avatar: '',
+            id: 'you', label: userName || 'You', main: true, isYou: true, isNew: false, avatar: '', learned: [],
             tags: [you.body.position, ...you.holding.map(h => `holding ${h}`)].filter(Boolean).slice(0, 3),
             body: pairs(you.body, YOU), mind: [], holding: you.holding,
         },
@@ -105,6 +107,7 @@ export function perceive(state, mode = 'senses', { userName = '' } = {}) {
         };
     }).filter(Boolean);
 
+    const threadRefs = [...state.events, ...state.quests].filter(t => isOpen(t) && (t.known || all)).slice(-3).map(t => ({ id: t.id, name: t.name }));
     return {
         scene: {
             place: here.name,
@@ -113,9 +116,11 @@ export function perceive(state, mode = 'senses', { userName = '' } = {}) {
             icon: weatherIcon(state),
             atmosphere: atmosphereLine(state),
             now: state.scene.now,
-            threads: [...state.events, ...state.quests].filter(t => isOpen(t) && (t.known || all)).slice(-3).map(t => t.name),
+            threads: threadRefs.map(t => t.name),
+            threadRefs,
         },
         people,
+        fresh: [...new Set(state.scene.fresh.map(x => state.npcs.find(n => n.id === x.id)).filter(Boolean).map(n => labelOf(n, mode)))],
         left,
         items: { mine, here: [...loose, ...held] },
         around,

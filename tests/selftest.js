@@ -749,6 +749,34 @@ t('dossier: notes and deletions live outside the world and merge on top of it', 
     assert.equal(addNote(store, 'mara', '   ', 'D1'), null);
 });
 
+t('HUD: what you learned shows on the person, fresh ones are flagged, notes ride along, truth stays out', () => {
+    const s = world();
+    const mara = s.npcs.find(n => n.id === 'mara');
+    mara.hidden = 'she poisoned the well';
+    mara.secrets = ['owes the smugglers'];
+    const next = applyPatch(s, { learned: [{ id: 'mara', k: 'like', t: 'Loves the smell of tar' }] });
+    const notes = normNotes(null);
+    addNote(notes, 'mara', 'Ask about the harbour', 'D1');
+    const view = perceive(next, 'senses', { notes });
+    const row = view.people.find(p => p.id === 'mara');
+    assert.deepEqual(row.learned.map(f => [f.t, f.own, f.fresh]), [['Loves the smell of tar', false, true], ['Ask about the harbour', true, false]]);
+    assert.deepEqual(view.fresh, ['Mara']);
+    assert.ok(!JSON.stringify(view).includes('poisoned') && !JSON.stringify(view).includes('smugglers'), 'no hidden truth in senses mode');
+    assert.deepEqual(view.people.find(p => p.isYou).learned, []);
+    const later = applyPatch(next, {});
+    assert.deepEqual(perceive(later, 'senses', { notes }).fresh, [], 'only the last update is fresh');
+    assert.deepEqual(perceive(later, 'senses').people.find(p => p.id === 'mara').learned.map(f => f.t), ['Loves the smell of tar'], 'works without a notes store');
+});
+
+t('HUD: a stranger keeps a description label in the dossier view, and open threads carry ids for hints', () => {
+    const s = world();
+    s.npcs.find(n => n.id === 'mara').nameKnown = false;
+    const view = perceive(s, 'senses');
+    assert.equal(view.people.find(p => p.id === 'mara').label, 'a fishmonger');
+    s.events = [{ id: 'smoke', name: 'Smoke on the hill', status: 'active', known: true }];
+    assert.ok(perceive(s, 'senses').scene.threadRefs.some(t => t.id === 'smoke' && t.name === 'Smoke on the hill'));
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
     try { await fn(); console.log(`  ok   ${name}`); } catch (e) { failed++; console.error(`FAIL  ${name}\n      ${e.message}`); }

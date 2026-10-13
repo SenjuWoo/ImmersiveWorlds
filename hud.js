@@ -9,6 +9,7 @@ const ICONS = [
     [/coin|money|gold|purse|silver/i, 'fa-coins'], [/tool|hammer|pick|saw|wrench/i, 'fa-screwdriver-wrench'], [/light|lamp|lantern|torch|candle/i, 'fa-fire'],
     [/phone|device|radio/i, 'fa-mobile-screen'],
 ];
+export const KIND_ICON = { like: 'fa-heart', dislike: 'fa-heart-crack', interest: 'fa-star', history: 'fa-scroll', trait: 'fa-masks-theater', bond: 'fa-link', promise: 'fa-handshake', note: 'fa-pen', other: 'fa-circle-info' };
 export const iconFor = item => (ICONS.find(([re]) => re.test(`${item.type} ${item.name}`)) ?? [null, 'fa-cube'])[1];
 
 const FULL = 260;
@@ -121,8 +122,10 @@ function cardHtml(p) {
     const rows = (title, list) => list.length ? `<div class="iw-hud-sec">${title}</div>${list.map(([k, v]) => `<div class="iw-hud-row"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}` : '';
     const has = p.holding.length ? [['Holding', p.holding.join(', ')]] : [];
     const truth = p.truth?.length ? [['Hidden', p.truth.join(' · ')]] : [];
-    const html = rows('Body', p.body) + rows('Mind', p.mind) + rows('Has', has) + rows('Truth', truth);
-    return html ? `<div class="iw-hud-card">${html}</div>` : '';
+    const learned = p.learned?.length ? `<div class="iw-hud-sec">Learned</div>${p.learned.map(f => `<div class="iw-hud-fact ${f.fresh ? 'is-fresh' : ''}"><i class="fa-solid ${KIND_ICON[f.k] ?? KIND_ICON.other}"></i><span>${esc(f.t)}</span></div>`).join('')}` : '';
+    const edit = p.isYou ? '' : `<div class="iw-hud-edit"><button type="button" data-iw-dossier="${esc(p.id)}"><i class="fa-solid fa-book-open"></i>Dossier</button></div>`;
+    const html = rows('Body', p.body) + rows('Mind', p.mind) + rows('Has', has) + learned + rows('Truth', truth);
+    return html ? `<div class="iw-hud-card">${html}${edit}</div>` : '';
 }
 
 function peopleHtml(people, left) {
@@ -190,6 +193,8 @@ function onClick(e) {
     const t = e.target;
     const go = t.closest('[data-iw-go]');
     if (go) { openNode = ''; return handlers.onGo?.(go.dataset.iwGo); }
+    const dos = t.closest('[data-iw-dossier]');
+    if (dos) return handlers.onDossier?.(dos.dataset.iwDossier);
     const pk = t.closest('[data-iw-peek]');
     if (pk) { openNode = ''; return handlers.onPeek?.(pk.dataset.iwPeek); }
     const node = t.closest('[data-iw-node]');
@@ -206,6 +211,7 @@ function announce() {
     const arrived = view.people.filter(p => p.isNew).map(p => p.label);
     if (arrived.length) lines.push(`${arrived.join(', ').replace(/^./, ch => ch.toUpperCase())} ${arrived.length > 1 ? 'arrive' : 'arrives'}.`);
     for (const a of view.around) if (a.sound && a.sound !== 'voices' && a.sound !== 'someone moving about' && lastSounds.get(a.id) !== a.sound) lines.push(`From ${a.name}: ${a.sound}`);
+    if (view.fresh?.length) lines.push(`Learned something about ${view.fresh.slice(0, 2).join(' and ')}.`);
     if (!lines.length) return;
     const toast = root.querySelector('.iw-hud-toast');
     toast.textContent = lines.slice(0, 2).join(' ');
