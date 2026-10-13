@@ -947,7 +947,7 @@ async function loadModelList(force = false) {
     if (!list || !note || s.modelMode !== 'model' || s.modelSource !== 'openrouter') return;
     try {
         if (force || !modelCache.list.length || Date.now() - modelCache.at > 30 * 60e3) modelCache = { at: Date.now(), list: await fetchModels() };
-        list.innerHTML = modelOptions(modelCache.list, '', 400).map(m => `<option value="${escapeHtml(m.id)}" label="${escapeHtml(`${m.name} — $${m.inPerM}/$${m.outPerM} per M · ${Math.round(m.ctx / 1000)}k`)}"></option>`).join('');
+        list.innerHTML = modelOptions(modelCache.list, '', 800).map(m => `<option value="${escapeHtml(m.id)}" label="${escapeHtml(`${m.name} — $${m.inPerM}/$${m.outPerM} per M · ${Math.round(m.ctx / 1000)}k`)}"></option>`).join('');
         note.textContent = `(${modelCache.list.length} models)`;
     } catch (error) {
         log('model list', error);

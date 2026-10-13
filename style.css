@@ -496,6 +496,9 @@ body.iw-ambient[data-iw-weather="storm"]::before, body.iw-ambient[data-iw-weathe
 .imx-fact > small { opacity: .5; white-space: nowrap; }
 .imx-fact .menu_button { margin: 0; padding: 1px 8px; }
 
+/* The hidden attribute must win over .imx-field's display */
+[data-iw-when][hidden] { display: none !important; }
+
 /* Ideas */
 .iw-hud-ideas { margin-top: 12px; font-size: .9em; }
 .iw-hud-bulb, .iw-hud-ideas-list button {
