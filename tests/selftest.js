@@ -13,7 +13,7 @@ import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrate
 import { placeKind, artSlot, skyOf, particleSpec, weatherKind, PLACE_KINDS } from '../scenery.js';
 import { migrateBackdrop, silhouetteSvg, pictureKey, gradeOf, sanitizeBackdrop } from '../backdrop.js';
 import { makeParticles, stepParticles } from '../particles.js';
-import { normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue } from '../art.js';
+import { normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue, isImagePath } from '../art.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
 
@@ -1147,6 +1147,41 @@ t('art queue: has() sees queued and running keys, and the settings offer item pi
     assert.ok(readFileSync(new URL('../settings.html', import.meta.url), 'utf8').includes('data-iw-setting="artItems"'));
     const hud = readFileSync(new URL('../hud.js', import.meta.url), 'utf8');
     assert.ok(hud.includes('data-iw-art='), 'the item card has draw, redraw and remove buttons');
+});
+
+t('art review: real picture paths are accepted, junk is not', () => {
+    for (const ok of ["/user/images/Seraphina's Tale/x_2026-10-13@12h00m.png", '/user/images/Élise/x.png', '/user/images/ミク/a.webp', 'user/images/Miyu (v2)/a.jpg', 'data:image/svg+xml;utf8,%3Csvg', 'https://x.test/y.png?x=1']) assert.ok(isImagePath(ok), ok);
+    for (const bad of ['', 'undefined', 'Error: no backend', null, undefined, 42]) assert.ok(!isImagePath(bad), String(bad));
+});
+
+t('art review: nothing that could run as STscript, a macro or markup survives into a prompt', () => {
+    const nasty = ['{: /echo hi :}()', '"unbalanced', '{}}{user}{{}', '&lt;img src=x onerror=alert(1)&gt;', '<b>x</b>', 'back\slash', '`tick`'];
+    for (const n of nasty) {
+        for (const out of [placePrompt({ name: n, type: n, season: n, genre: n, tone: n, slot: 'day' }), portraitPrompt({ label: n, look: n, tags: [n] }), itemPrompt({ name: n, type: n, description: n })]) {
+            assert.ok(!/[{}"<>\`|]/.test(out), `${JSON.stringify(n)} -> ${out}`);
+        }
+    }
+});
+
+t('art review: reset() never lets two pictures draw at once, and the cap does not block the Test job', async () => {
+    const slow = ms => new Promise(r => setTimeout(r, ms));
+    let live = 0;
+    let overlap = 0;
+    const q = new ArtQueue({ cap: 10, generate: async () => { live++; overlap = Math.max(overlap, live); await slow(20); live--; return '/x.png'; } });
+    const job = key => ({ key, prompt: 'p', kind: 'place', size: [1, 1] });
+    q.enqueue(job('a'));
+    await slow(2);
+    q.reset();                      // a is still drawing
+    assert.equal(q.enqueue(job('b')), 'queued');
+    await q.whenIdle();
+    await slow(30);
+    assert.equal(overlap, 1, 'b waited for a to finish');
+    const capped = new ArtQueue({ cap: 1, used: () => 5, generate: async () => '/t.png' });
+    assert.equal(capped.enqueue(job('c')), 'capped');
+    assert.equal(capped.enqueue({ ...job('test'), kind: 'test' }), 'queued', 'the Test button always runs');
+    await capped.whenIdle();
+    const index = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+    assert.ok(index.includes('extend=false') && index.includes('edit=false'), 'the user\'s own Image Generation prompt extending/editing must not apply');
 });
 
 let failed = 0;

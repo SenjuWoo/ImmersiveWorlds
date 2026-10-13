@@ -9,7 +9,8 @@ Scene visuals II: generated art (opt in). Worlds from 2.4 load unchanged.
 - Item pictures: a Draw button on item cards (off by default), with Redraw and Remove.
 - Uses SillyTavern's Image Generation extension, one picture at a time, with a per-chat cap (default 12), a Test image generation button and a Clear generated art button. Two failures in a row pause drawing with one message.
 - Pictures are never made from anything you have not seen, and prompts carry no weather, people or macros.
-- Tests: 102.
+- Picture file names with apostrophes, accents or non-Latin letters work; prompts are stripped of anything a slash command could act on; your own Image Generation "extend" and "edit prompt" settings no longer apply to these pictures; Test image generation runs through the same one-at-a-time queue; portraits work with the backdrop off; a picture that failed is not retried on every update.
+- Tests: 105.
 
 ## 2.4.0 — 2026-10-13
 

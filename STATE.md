@@ -10,7 +10,8 @@ Updated 2026-10-13 · v2.4.1 · branch `main`
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
 
 ## Verified (2026-10-13, 2.4.1)
-- `node tests/selftest.js` 102/102; `node --check` on every file
+- `node tests/selftest.js` 105/105; `node --check` on every file
+- A fresh reviewer read the 2.4.1 diff against SillyTavern's Image Generation source: 2 Critical (picture paths with apostrophes/accents rejected; prompt text that could run STscript/macros/markup) and 3 Important (reset() let two pictures draw at once, user's extend/edit prompt settings applied, portraits needed the backdrop on) fixed, each with a test that failed first
 - E2E in an isolated ST 1.19 with a stub `/imagine` (the slash command re-registered to return a tiny data-URL picture): place picture on first visit and cached; day and night one each, dawn shares day and dusk shares night; travel away mid-draw lands the picture under its own place key and the backdrop at the new place stays the painted scene; a chat switch drops a late result; two failures in a row give one toast and pause; Test resumes; cap refuses extra pictures; Clear empties; portraits from `look` or label+tags (never `appearance`), avatar people skipped; item Draw/Redraw/Remove with "Drawing…" state
 - Not verified: **a real image backend** (the prompts and the returned file path format were read from the Image Generation extension's source, not run against ComfyUI/A1111/etc.), prompt quality, how long a real picture takes
 
@@ -50,6 +51,7 @@ Updated 2026-10-13 · v2.4.1 · branch `main`
 - Public API for Immersive Adventures: `globalThis.immersiveWorlds { version, isActive, getState, brief, travel }`.
 
 ## Known limits / next ideas
+- Generated pictures: ones in a character's gallery that the user later deletes show as broken images (no onerror fallback); pictures of people or places from swiped/rewound turns keep counting against the cap until Clear; pressing SillyTavern's own Stop counts as a failure (two in a row pause drawing)
 - People crossing on the same road do not meet (travel is origin to destination).
 - Immersive Adventures /ia-travel still says "Setting out" when Immersive Worlds refuses a route.
 - The test browser pane fires no real resize events; live window resizing was checked with a synthetic event only.

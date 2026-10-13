@@ -15,7 +15,7 @@ import { mountHud, renderHud, sideVisible, KIND_ICON } from './hud.js';
 import { HINT_SYSTEM, hintPrompt, parseHints } from './hints.js';
 import { migrateModelMode, fetchModels, modelOptions } from './models.js';
 import { placeKind, particleSpec, artSlot } from './scenery.js';
-import { ART_KEY, normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue } from './art.js';
+import { ART_KEY, normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue, isImagePath } from './art.js';
 import { startParticles, stopParticles } from './particles.js';
 import { mountBackdrop, paintBackdrop, sanitizeBackdrop } from './backdrop.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
@@ -417,6 +417,8 @@ async function buildWorld() {
             if (card) Object.assign(n, { known: true, nameKnown: true, main: true, materializedAvatar: n.materializedAvatar || card.avatar || '' });
         }
         delete ctx().chatMetadata[TURN_KEY];
+        delete ctx().chatMetadata[ART_KEY]; // another world's places share ids like "docks"; its pictures would show here
+        queue?.reset();
         setState(state);
         inject();
         await ctx().saveMetadata();
@@ -485,6 +487,7 @@ function refresh({ quiet = false } = {}) {
     paintHud(quiet);
     paintStatus();
     applyAmbient();
+    wantArt(); // pictures are wanted whatever the backdrop mode (portraits work with the backdrop off)
     if (isPanelOpen(PANEL_ID)) renderPanel();
 }
 
@@ -537,14 +540,12 @@ function applyAmbient() {
     paintBackdrop({ mode: s.backdrop, kind: placeKind(loc.type, loc.name), slot, weather, art });
     const still = !s.particles || matchMedia('(prefers-reduced-motion: reduce)').matches;
     startParticles(particleSpec(weather, slot, still));
-    wantArt();
 }
 
 // ---- Generated pictures (opt in): one at a time through SillyTavern's Image Generation extension. ----
 // Art is presentation, not story state, so it lives in its own chat-metadata key that swipes and deletes never rewind.
 const getArtStore = () => { const md = ctx().chatMetadata; return md ? (md[ART_KEY] ??= normArt(null)) : normArt(null); };
-const saveArt = () => { ctx().saveMetadataDebounced(); refresh({ quiet: true }); };
-const IMAGE_PATH = /^(?:data:image\/|https?:\/\/|[\w./%~@ -]+\.(?:png|jpe?g|webp|gif|avif))/i;
+const saveArt = () => { ctx().saveMetadataDebounced(); refresh({ quiet: true }); syncSettingsUi(); };
 const NO_IMAGES = "Image generation isn't set up in SillyTavern. Pick an image backend in the Image Generation extension, then press Test image generation in the Immersive Worlds settings.";
 
 /** Run /imagine quietly and return the saved picture's path, or '' on any failure. */
@@ -552,9 +553,10 @@ async function imagine(job) {
     const [w, h] = job.size;
     const negative = job.kind === 'place' ? 'people, text, watermark' : 'text, watermark';
     try {
-        const res = await ctx().executeSlashCommandsWithOptions(`/imagine quiet=true width=${w} height=${h} negative="${negative}" ${job.prompt}`);
+        // extend=false edit=false: the user's own Image Generation settings must not add an LLM call that sees the whole chat, or open a popup per picture.
+        const res = await ctx().executeSlashCommandsWithOptions(`/imagine quiet=true extend=false edit=false width=${w} height=${h} negative="${negative}" ${job.prompt}`);
         const url = String(res?.pipe ?? '').trim();
-        return IMAGE_PATH.test(url) ? url : '';
+        return isImagePath(url) ? url : '';
     } catch (error) {
         log('imagine failed', error);
         return '';
@@ -562,14 +564,26 @@ async function imagine(job) {
 }
 
 let queue = null;
+const failedKeys = new Set(); // keys whose picture failed this session
 function artQueue() {
     return (queue ??= new ArtQueue({
         generate: imagine,
         cap: settings().artCap,
         used: () => artCount(getArtStore()),
-        onDone: (job, url) => { putArt(getArtStore(), job.key, url); log('art ready', job.key, url); saveArt(); },
-        onFail: (job, error) => { log('art failed', job.key, error); refresh({ quiet: true }); },
-        onPause: () => toastr.warning(NO_IMAGES, TITLE),
+        onDone: (job, url) => {
+            if (job.kind === 'test') return job.after?.(url);
+            failedKeys.delete(job.key);
+            putArt(getArtStore(), job.key, url);
+            log('art ready', job.key, url);
+            saveArt();
+        },
+        onFail: (job, error) => {
+            log('art failed', job.key, error);
+            if (job.kind === 'test') toastr.error(NO_IMAGES, TITLE);
+            else failedKeys.add(job.key); // not retried on every refresh; the player can still press Draw / Redraw
+            refresh({ quiet: true });
+        },
+        onPause: () => { toastr.warning(NO_IMAGES, TITLE); refresh({ quiet: true }); },
     }));
 }
 
@@ -583,10 +597,13 @@ function itemArt(action, id) {
     const view = perceive(state, REVEAL.includes(settings().hudReveal) ? settings().hudReveal : 'senses', { userName: ctx().name1, notes: getNotes() });
     const brief = itemBrief(view, id, i => state.items.find(x => x.id === i)?.description ?? '');
     if (!brief) return;
-    if (action === 'redraw') dropArt(store, key);
+    const old = getArt(store, key);
+    if (action === 'redraw') dropArt(store, key); // so the cap counts it afresh; put back below if it cannot be queued
+    failedKeys.delete(key);
     const q = artQueue();
     q.cap = settings().artCap;
     const result = q.enqueue({ key, kind: 'item', size: [512, 512], prompt: itemPrompt(brief) });
+    if (result !== 'queued' && old) putArt(store, key, old);
     if (result === 'capped') toastr.info(`Picture limit reached (${settings().artCap}). Raise it in the settings or clear some art.`, TITLE);
     if (result === 'paused') toastr.warning(NO_IMAGES, TITLE);
     refresh({ quiet: true });
@@ -608,7 +625,7 @@ function wantArt() {
             const loc = currentLocation(state);
             const slot = timeSlot(state);
             const key = artKey('place', loc.id, slot);
-            if (!getArt(getArtStore(), key)) {
+            if (!getArt(getArtStore(), key) && !failedKeys.has(key)) {
                 const prompt = placePrompt({ name: loc.name, type: loc.type, season: state.clock.season, genre: state.genre, tone: state.tone, slot });
                 log('art wanted', key, q.enqueue({ key, kind: 'place', size: [1024, 576], prompt }));
             }
@@ -617,19 +634,23 @@ function wantArt() {
             // Only people the HUD shows, with no sprite and no avatar, drawn from how you see them (never the sheet's appearance).
             for (const p of perceive(state, REVEAL.includes(s2.hudReveal) ? s2.hudReveal : 'senses', { userName: ctx().name1, notes: getNotes() }).people) {
                 const key = artKey('person', p.id);
-                if (p.isYou || getArt(getArtStore(), key) || p.avatar || spriteUrl(p)) continue;
+                if (p.isYou || getArt(getArtStore(), key) || failedKeys.has(key) || p.avatar || spriteUrl(p)) continue;
                 log('art wanted', key, q.enqueue({ key, kind: 'person', size: [512, 768], prompt: portraitPrompt({ label: p.label, look: p.look, tags: p.tags }) }));
             }
         }
     }, 1500);
 }
 
+// Goes through the queue like every picture, so it can never draw at the same time as another one.
 async function testImage() {
+    const q = artQueue();
+    q.resume();
+    failedKeys.clear();
     toastr.info('Drawing a small test picture…', TITLE);
-    const url = await imagine({ kind: 'place', size: [256, 256], prompt: 'a small wooden cottage in a green meadow, daylight, no people, no text' });
-    if (!url) return void toastr.error(NO_IMAGES, TITLE);
-    artQueue().resume();
-    await ctx().callGenericPopup(`<div><img src="${escapeHtml(encodeURI(url))}" alt="" style="max-width:100%;border-radius:8px"><p>Image generation works. Pictures are drawn when you enter a new place.</p></div>`, ctx().POPUP_TYPE.TEXT);
+    q.enqueue({
+        key: 'test:image', kind: 'test', size: [256, 256], prompt: 'a small wooden cottage in a green meadow, daylight, no people, no text',
+        after: url => ctx().callGenericPopup(`<div><img src="${escapeHtml(encodeURI(url))}" alt="" style="max-width:100%;border-radius:8px"><p>Image generation works. Pictures are drawn when you enter a new place.</p></div>`, ctx().POPUP_TYPE.TEXT),
+    });
 }
 
 async function clearArtStore() {
@@ -1147,12 +1168,14 @@ function onChatChanged() {
     epoch += 1;
     queued = null;
     queue?.reset();
+    failedKeys.clear();
     const md = ctx().chatMetadata;
     if (md?.[STATE_KEY]) markPerceived(md[STATE_KEY] = normalizeState(md[STATE_KEY]));
     if (md?.[NOTES_KEY]) md[NOTES_KEY] = normNotes(md[NOTES_KEY]);
     if (md?.[ART_KEY]) md[ART_KEY] = normArt(md[ART_KEY]);
     inject();
     refresh({ quiet: true });
+    syncSettingsUi();
 }
 
 export async function init() {

@@ -25,12 +25,16 @@ export const putArt = (store, key, url, at = new Date().toISOString()) => { stor
 export const dropArt = (store, key) => { delete store.items[key]; };
 export const clearArt = store => { store.items = {}; };
 export const artCount = store => Object.keys(store.items).length;
+/** A saved picture's path or URL: any file name is fine (apostrophes, accents, kana), only the extension or scheme must look like a picture. */
+export const isImagePath = v => typeof v === 'string' && /^(?:data:image\/|https?:\/\/)|\.(?:png|jpe?g|webp|gif|avif|bmp)(?:\?.*)?$/i.test(v.trim());
 export const clampCap = n => { const v = Math.floor(Number(n)); return Number.isFinite(v) ? Math.max(4, Math.min(40, v)) : 12; };
 
 // Prompts are built from what the player can see only, and never carry weather (particles and the grade draw that),
 // pipes (they end a slash command) or {{macros}} (SillyTavern would expand them).
 const WEATHER = /\b(?:rain\w*|storm\w*|snow\w*|fog\w*|mist\w*|thunder\w*|blizzard|drizzle)\b/gi;
-const plain = (text, max) => cleanText(text, max).replace(/[|\r\n]+/g, ' ').replace(/\{\{|\}\}/g, '').replace(/\s+/g, ' ').trim();
+// Braces, quotes, angle brackets, backslashes, backticks and pipes all mean something to the slash-command parser, the macro expander or
+// the toast that echoes a failed command, so none of them may reach it. cleanText runs first (it decodes entities), this strips what is left.
+const plain = (text, max) => cleanText(text, max).replace(/[{}"<>\\`|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 const noWeather = text => text.replace(WEATHER, '').replace(/\s+/g, ' ').replace(/\s,/g, ',').trim();
 
 /** One line for a place picture: name, type, season, setting, time of day (two pictures per place). */
@@ -71,6 +75,7 @@ export class ArtQueue {
     #paused = false;
     #epoch = 0;
     #waiters = [];
+    #inflight = false; // a generation is really running, even if reset() has since forgotten it: only one at a time, ever
 
     constructor({ generate, cap = 12, used = () => 0, onDone = () => {}, onFail = () => {}, onPause = () => {} }) {
         Object.assign(this, { generate, cap, used, onDone, onFail, onPause });
@@ -84,7 +89,7 @@ export class ArtQueue {
     enqueue(job) {
         if (this.#paused) return 'paused';
         if (job.key === this.running || this.#jobs.some(j => j.key === job.key)) return 'duplicate';
-        if (this.used() + this.#jobs.length + (this.#running ? 1 : 0) >= this.cap) return 'capped';
+        if (job.kind !== 'test' && this.used() + this.#jobs.length + (this.#running ? 1 : 0) >= this.cap) return 'capped'; // the Test button always runs
         this.#jobs.push(job);
         this.#pump();
         return 'queued';
@@ -113,14 +118,16 @@ export class ArtQueue {
     }
 
     async #pump() {
-        if (this.#running || this.#paused || !this.#jobs.length) return;
+        if (this.#inflight || this.#running || this.#paused || !this.#jobs.length) return;
         const job = this.#jobs.shift();
         const epoch = this.#epoch;
         this.#running = job;
+        this.#inflight = true;
         let url = '';
         let error = null;
         try { url = await this.generate(job); } catch (e) { error = e; }
-        if (epoch !== this.#epoch) return; // the chat changed while it drew: nothing from before may land
+        this.#inflight = false;
+        if (epoch !== this.#epoch) { this.#settle(); this.#pump(); return; } // the chat changed while it drew: nothing from before may land, but whatever was queued since can start now
         this.#running = null;
         if (typeof url === 'string' && url && !error) {
             this.#fails = 0;
