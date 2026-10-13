@@ -77,6 +77,8 @@ export class ArtQueue {
     }
 
     get running() { return this.#running?.key ?? ''; }
+    /** Is this key being drawn or waiting? */
+    has(key) { return key === this.running || this.#jobs.some(j => j.key === key); }
     get pending() { return this.#jobs.length; }
 
     enqueue(job) {

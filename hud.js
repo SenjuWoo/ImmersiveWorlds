@@ -173,6 +173,15 @@ function peopleHtml(people, left) {
     return rows + gone;
 }
 
+// Item picture: shown when one exists (redraw / remove), else a Draw button when item pictures are on. Never drawn on its own.
+function itemArtHtml(id) {
+    const url = handlers.itemArt?.(id);
+    const btn = (act, icon, label) => `<button type="button" data-iw-art="${act}" data-id="${esc(id)}"><i class="fa-solid ${icon}"></i>${label}</button>`;
+    if (handlers.itemBusy?.(id)) return '<div class="iw-hud-meta">Drawing…</div>';
+    if (url) return `<img class="iw-hud-itempic" src="${esc(url)}" alt="" loading="lazy"><div class="iw-hud-edit">${btn('redraw', 'fa-rotate', 'Redraw')}${btn('remove', 'fa-trash', 'Remove')}</div>`;
+    return handlers.itemArtOn?.() ? `<div class="iw-hud-edit">${btn('draw', 'fa-paintbrush', 'Draw this')}</div>` : '';
+}
+
 function itemsHtml(items) {
     const shown = items.slice(0, MAX_TILES);
     const detail = openItem && shown.find(i => i.id === openItem);
@@ -182,7 +191,7 @@ function itemsHtml(items) {
             <button type="button" class="iw-hud-item ${i.where === 'in your hand' ? 'is-hot' : ''} ${openItem === i.id ? 'is-open' : ''}" data-iw-item="${esc(i.id)}" title="${esc(i.name)}">
                 <i class="fa-solid ${iconFor(i)}"></i><span>${esc(i.name)}</span><small>${esc(i.where)}</small>
             </button>`).join('')}${items.length > MAX_TILES ? `<span class="iw-hud-more">+${items.length - MAX_TILES}</span>` : ''}</div>
-        ${detail ? `<div class="iw-hud-card iw-hud-itemcard"><b>${esc(detail.name)}</b><span class="iw-hud-meta">${esc(detail.type)} · ${esc(detail.where)}</span>${(() => { const d = handlers.describeItem?.(detail.id); return d ? `<p>${esc(d)}</p>` : ''; })()}</div>` : ''}`;
+        ${detail ? `<div class="iw-hud-card iw-hud-itemcard"><b>${esc(detail.name)}</b><span class="iw-hud-meta">${esc(detail.type)} · ${esc(detail.where)}</span>${(() => { const d = handlers.describeItem?.(detail.id); return d ? `<p>${esc(d)}</p>` : ''; })()}${itemArtHtml(detail.id)}</div>` : ''}`;
 }
 
 function statusOf(a) {
@@ -231,6 +240,8 @@ function onClick(e) {
     if (pk) { openNode = ''; return handlers.onPeek?.(pk.dataset.iwPeek); }
     const node = t.closest('[data-iw-node]');
     if (node) { openNode = openNode === node.dataset.iwNode ? '' : node.dataset.iwNode; openItem = ''; return draw(); }
+    const art = t.closest('[data-iw-art]');
+    if (art) return handlers.onArt?.(art.dataset.iwArt, art.dataset.id);
     const item = t.closest('[data-iw-item]');
     if (item) { openItem = openItem === item.dataset.iwItem ? '' : item.dataset.iwItem; openNode = ''; return draw(); }
     const person = t.closest('[data-iw-person]');

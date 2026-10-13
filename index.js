@@ -15,7 +15,7 @@ import { mountHud, renderHud, sideVisible, KIND_ICON } from './hud.js';
 import { HINT_SYSTEM, hintPrompt, parseHints } from './hints.js';
 import { migrateModelMode, fetchModels, modelOptions } from './models.js';
 import { placeKind, particleSpec, artSlot } from './scenery.js';
-import { ART_KEY, normArt, artKey, getArt, putArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, ArtQueue } from './art.js';
+import { ART_KEY, normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue } from './art.js';
 import { startParticles, stopParticles } from './particles.js';
 import { mountBackdrop, paintBackdrop, sanitizeBackdrop } from './backdrop.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
@@ -568,9 +568,28 @@ function artQueue() {
         cap: settings().artCap,
         used: () => artCount(getArtStore()),
         onDone: (job, url) => { putArt(getArtStore(), job.key, url); log('art ready', job.key, url); saveArt(); },
-        onFail: (job, error) => log('art failed', job.key, error),
+        onFail: (job, error) => { log('art failed', job.key, error); refresh({ quiet: true }); },
         onPause: () => toastr.warning(NO_IMAGES, TITLE),
     }));
+}
+
+/** Draw, redraw or remove one item's picture: only on request, only for items you hold or see. */
+function itemArt(action, id) {
+    const state = getState();
+    if (!state) return;
+    const store = getArtStore();
+    const key = artKey('item', id);
+    if (action === 'remove') { dropArt(store, key); return saveArt(); }
+    const view = perceive(state, REVEAL.includes(settings().hudReveal) ? settings().hudReveal : 'senses', { userName: ctx().name1, notes: getNotes() });
+    const brief = itemBrief(view, id, i => state.items.find(x => x.id === i)?.description ?? '');
+    if (!brief) return;
+    if (action === 'redraw') dropArt(store, key);
+    const q = artQueue();
+    q.cap = settings().artCap;
+    const result = q.enqueue({ key, kind: 'item', size: [512, 512], prompt: itemPrompt(brief) });
+    if (result === 'capped') toastr.info(`Picture limit reached (${settings().artCap}). Raise it in the settings or clear some art.`, TITLE);
+    if (result === 'paused') toastr.warning(NO_IMAGES, TITLE);
+    refresh({ quiet: true });
 }
 
 let artTimer = 0;
@@ -1142,7 +1161,7 @@ export async function init() {
     await mountSettings();
     mountBackdrop();
     bindUi();
-    mountHud({ artUrl: p => getArt(getArtStore(), artKey('person', p.id)), onGo: goTo, onPeek: peekInto, onDossier: openDossier, spriteUrl, onHint: () => requestHints(), onUseHint: text => text && prefillAction(text.startsWith('*') ? text : `*${text}*`), onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
+    mountHud({ itemArt: id => getArt(getArtStore(), artKey('item', id)), itemArtOn: () => settings().artItems, itemBusy: id => Boolean(queue?.has(artKey('item', id))), onArt: itemArt, artUrl: p => getArt(getArtStore(), artKey('person', p.id)), onGo: goTo, onPeek: peekInto, onDossier: openDossier, spriteUrl, onHint: () => requestHints(), onUseHint: text => text && prefillAction(text.startsWith('*') ? text : `*${text}*`), onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
     addWandItem({ id: 'iw-wand', icon: 'fa-compass', label: 'Living World', onClick: () => openWorldPanel() });
     addWandItem({ id: 'iw-ideas', icon: 'fa-lightbulb', label: 'Ideas: what could I do?', onClick: () => requestHints() });
     registerCommands();

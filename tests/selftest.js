@@ -1135,6 +1135,20 @@ t('look: kept and trimmed, set once by the director, shown only for people you k
     assert.ok(!JSON.stringify(perceive(fresh, 'senses')).includes('SECRET-APPEARANCE'), 'appearance never reaches the view');
 });
 
+t('art queue: has() sees queued and running keys, and the settings offer item pictures', async () => {
+    const slow = ms => new Promise(r => setTimeout(r, ms));
+    const q = new ArtQueue({ cap: 5, generate: async () => { await slow(5); return '/x.png'; } });
+    q.enqueue({ key: 'item:a', prompt: 'p', kind: 'item', size: [1, 1] });
+    q.enqueue({ key: 'item:b', prompt: 'p', kind: 'item', size: [1, 1] });
+    assert.ok(q.has('item:a') && q.has('item:b'), 'running and queued');
+    assert.ok(!q.has('item:c'));
+    await q.whenIdle();
+    assert.ok(!q.has('item:a'), 'done keys are gone');
+    assert.ok(readFileSync(new URL('../settings.html', import.meta.url), 'utf8').includes('data-iw-setting="artItems"'));
+    const hud = readFileSync(new URL('../hud.js', import.meta.url), 'utf8');
+    assert.ok(hud.includes('data-iw-art='), 'the item card has draw, redraw and remove buttons');
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
     try { await fn(); console.log(`  ok   ${name}`); } catch (e) { failed++; console.error(`FAIL  ${name}\n      ${e.message}`); }
