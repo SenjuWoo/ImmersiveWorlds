@@ -32,9 +32,13 @@ export function modelOptions(models, query = '', limit = 60) {
     return [...pinned, ...rest].slice(0, Math.max(1, limit));
 }
 
-const reasoningRejection = e => /\b400\b|bad request|invalid option|unsupported|not supported/i.test(String(e?.message ?? e)) && /reasoning|effort/i.test(String(e?.message ?? e));
+// SillyTavern hands the client only "Bad Request" / "Response not OK", never the provider's reasoning detail, so any
+// plain rejection steps down; errors that name a key, model or quota are real and are not retried.
+const rejected = e => /\b400\b|bad request|response not ok|invalid option|unsupported|not supported/i.test(String(e?.message ?? e));
+const unrelated = e => /api key|unauthori[sz]ed|\b40[123]\b|model|not found|unknown|quota|credit|rate/i.test(String(e?.message ?? e));
+const reasoningRejection = e => rejected(e) && !unrelated(e);
 
-/** Try each effort in turn; only a rejection that names reasoning/effort moves on to the next. */
+/** Try each effort in turn; a plain rejection moves to the next, anything else is thrown. */
 export async function withLadder(send, ladder = EFFORT_LADDER) {
     let last;
     for (const effort of ladder) {
@@ -49,8 +53,11 @@ export async function withLadder(send, ladder = EFFORT_LADDER) {
 /** Missing or rejected key reads as a plain instruction instead of an HTTP code. */
 export function friendlyOpenRouterError(error) {
     const text = String(error?.message ?? error);
-    return /\b40[13]\b|api key|unauthori[sz]ed|no auth|secret/i.test(text)
-        ? new Error('No usable OpenRouter API key in SillyTavern. Add it under API Connections → Chat Completion → OpenRouter, or choose another source.', { cause: error })
+    if (/\b40[13]\b|api key|unauthori[sz]ed|no auth|secret/i.test(text)) {
+        return new Error('No usable OpenRouter API key in SillyTavern. Add it under API Connections → Chat Completion → OpenRouter, or choose another source.', { cause: error });
+    }
+    return /response not ok|bad request/i.test(text)
+        ? new Error('OpenRouter did not accept the request: usually a missing or invalid API key, or a model id that does not exist. Check API Connections → Chat Completion → OpenRouter and the model id.', { cause: error })
         : error;
 }
 

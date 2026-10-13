@@ -665,12 +665,19 @@ t('models: effort ladder steps down only on a reasoning rejection', async () => 
     assert.equal(calls, 1);
     calls = 0;
     await assert.rejects(withLadder(async () => { calls++; throw new Error('400 Bad Request: model not found'); }), /model not found/);
-    assert.equal(calls, 1, 'a 400 about something else is not retried');
+    assert.equal(calls, 1, 'a 400 about the model is not retried');
+    calls = 0;
+    const ok2 = await withLadder(async e => { calls++; if (e !== 'minimal') throw new Error('Bad Request'); return 'fine'; });
+    assert.deepEqual([ok2, calls], ['fine', 2], 'ST only reports "Bad Request": that still steps the effort down');
+    calls = 0;
+    await assert.rejects(withLadder(async () => { calls++; throw new Error('Response not OK'); }), /Response not OK/);
+    assert.equal(calls, 3, 'a bare rejection tries every step, then gives up');
 });
 
 t('models: key errors read as an instruction; mode migration keeps profiles', () => {
     assert.match(friendlyOpenRouterError(new Error('401 Unauthorized')).message, /No usable OpenRouter API key/);
     assert.equal(friendlyOpenRouterError(new Error('boom')).message, 'boom');
+    assert.match(friendlyOpenRouterError(new Error('Response not OK')).message, /did not accept the request/);
     assert.equal(migrateModelMode({ profileId: 'p1' }), 'profile');
     assert.equal(migrateModelMode({}), 'current');
     assert.equal(migrateModelMode({ modelMode: 'model', profileId: 'p1' }), 'model');
