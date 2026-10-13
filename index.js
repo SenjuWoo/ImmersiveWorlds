@@ -14,7 +14,8 @@ import { perceive, markPerceived, peek, withArticle, labelOf, REVEAL } from './s
 import { mountHud, renderHud, sideVisible, KIND_ICON } from './hud.js';
 import { HINT_SYSTEM, hintPrompt, parseHints } from './hints.js';
 import { migrateModelMode, fetchModels, modelOptions } from './models.js';
-import { placeKind } from './scenery.js';
+import { placeKind, particleSpec } from './scenery.js';
+import { startParticles, stopParticles } from './particles.js';
 import { mountBackdrop, paintBackdrop, migrateBackdrop } from './backdrop.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
@@ -523,9 +524,13 @@ function applyAmbient() {
     const s = settings();
     const state = getState();
     const on = Boolean(s.enabled && state && s.backdrop !== 'off');
-    if (!on) return paintBackdrop({ mode: 'off' });
+    if (!on) { paintBackdrop({ mode: 'off' }); return stopParticles(); }
     const loc = currentLocation(state);
-    paintBackdrop({ mode: s.backdrop, kind: placeKind(loc.type, loc.name), slot: timeSlot(state), weather: weatherClass(state) });
+    const slot = timeSlot(state);
+    const weather = weatherClass(state);
+    paintBackdrop({ mode: s.backdrop, kind: placeKind(loc.type, loc.name), slot, weather });
+    const still = !s.particles || matchMedia('(prefers-reduced-motion: reduce)').matches;
+    startParticles(particleSpec(weather, slot, still));
 }
 
 function openWorldPanel(tab = activeTab) {

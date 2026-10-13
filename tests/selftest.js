@@ -12,6 +12,7 @@ import { addLearned, normNotes, mergedFacts, hideFact, addNote, removeNote, fact
 import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrateModelMode, RECOMMENDED } from '../models.js';
 import { placeKind, artSlot, skyOf, particleSpec, PLACE_KINDS } from '../scenery.js';
 import { migrateBackdrop, silhouetteSvg } from '../backdrop.js';
+import { makeParticles, stepParticles } from '../particles.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
 
@@ -925,6 +926,32 @@ t('backdrop: the settings screen offers the backdrop mode instead of the old tin
     assert.ok(html.includes('data-iw-setting="backdrop"'));
     assert.ok(html.includes('data-iw-setting="particles"'));
     assert.ok(!html.includes('data-iw-setting="ambientEffects"'));
+});
+
+t('particles: makeParticles fills the box and caps the count', () => {
+    let n = 0;
+    const seq = () => ((n = (n + 0.37) % 1));
+    const list = makeParticles('rain', 10, 800, 600, seq);
+    assert.equal(list.length, 10);
+    assert.ok(list.every(p => p.x >= 0 && p.x <= 800 && p.y >= 0 && p.y <= 600));
+    assert.equal(makeParticles('rain', 5000, 800, 600, seq).length, 300);
+    assert.deepEqual(makeParticles(null, 10, 800, 600), []);
+    assert.deepEqual(makeParticles('none', 10, 800, 600), []);
+});
+
+t('particles: rain falls and wraps, snow drifts sideways', () => {
+    const rain = [{ x: 10, y: 590, vx: 40, vy: 600, r: 1, a: 1 }];
+    stepParticles(rain, 'rain', 800, 600, 0.05);
+    assert.ok(rain[0].y < 590 || rain[0].y >= 0, 'stays inside after the wrap');
+    assert.ok(rain[0].y <= 600);
+    const fall = [{ x: 10, y: 100, vx: 0, vy: 600, r: 1, a: 1 }];
+    stepParticles(fall, 'rain', 800, 600, 0.05);
+    assert.ok(fall[0].y > 100, 'rain moves down');
+    const snow = makeParticles('snow', 5, 800, 600, () => 0.5);
+    assert.ok(snow.every(p => p.vx !== 0), 'snow drifts');
+    const wrap = [{ x: 799, y: 10, vx: 100, vy: 0, r: 1, a: 1 }];
+    stepParticles(wrap, 'snow', 800, 600, 0.5);
+    assert.ok(wrap[0].x >= 0 && wrap[0].x <= 800, 'wraps sideways');
 });
 
 let failed = 0;
