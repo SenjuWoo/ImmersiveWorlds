@@ -13,6 +13,7 @@ import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrate
 import { placeKind, artSlot, skyOf, particleSpec, weatherKind, PLACE_KINDS } from '../scenery.js';
 import { migrateBackdrop, silhouetteSvg, pictureKey, gradeOf, sanitizeBackdrop } from '../backdrop.js';
 import { makeParticles, stepParticles } from '../particles.js';
+import { normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue } from '../art.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
 
@@ -1004,6 +1005,104 @@ t('scenery review: the light slot is stable across midnight', () => {
     assert.equal(at('23:59'), 'night');
     assert.equal(at('00:01'), 'night');
     assert.equal(artSlot(at('23:59')), artSlot(at('00:01')));
+});
+
+t('art: store normalises junk, keys are stable, counts and drops work', () => {
+    assert.deepEqual(normArt('junk'), { v: 1, items: {} });
+    assert.deepEqual(normArt({ v: 1, items: { a: { url: 'x'.repeat(600), at: 't' }, b: { url: '/img/b.png', at: 't' }, c: { url: '' }, d: 'str' } }).items, { b: { url: '/img/b.png', at: 't' } });
+    assert.equal(artKey('place', 'docks', 'night'), 'place:docks:night');
+    assert.equal(artKey('place', 'docks', 'dawn'), 'place:docks:day', 'art slot, not the raw slot');
+    assert.equal(artKey('person', 'mara'), 'person:mara');
+    assert.equal(artKey('item', 'key'), 'item:key');
+    const store = normArt(null);
+    putArt(store, 'person:mara', '/img/m.png', 'T');
+    assert.equal(getArt(store, 'person:mara'), '/img/m.png');
+    assert.equal(getArt(store, 'person:nobody'), '');
+    assert.equal(artCount(store), 1);
+    dropArt(store, 'person:mara');
+    assert.equal(artCount(store), 0);
+    putArt(store, 'a', '/a'); putArt(store, 'b', '/b'); clearArt(store);
+    assert.equal(artCount(store), 0);
+    assert.deepEqual([clampCap(0), clampCap(99), clampCap('x'), clampCap(12), clampCap(4.7)], [4, 40, 12, 12, 4]);
+});
+
+t('art: prompts carry no weather, no people, no injection and stay short', () => {
+    const p = placePrompt({ name: 'Market Square', type: 'plaza', season: 'autumn', genre: 'low fantasy', tone: 'grim', slot: 'night' });
+    assert.match(p, /Market Square/);
+    assert.match(p, /night/);
+    assert.match(p, /no people/);
+    assert.doesNotMatch(p, /\b(?:rain|storm|snow|fog|mist)/i);
+    assert.match(placePrompt({ name: 'Docks', type: 'harbor', season: 'unspecified', slot: 'dawn' }), /day/, 'dawn uses the day picture');
+    assert.doesNotMatch(placePrompt({ name: 'Docks', type: 'harbor', season: 'unspecified', slot: 'dawn' }), /unspecified/);
+    assert.doesNotMatch(placePrompt({ name: 'Snow Fort in the Fog', type: 'keep', slot: 'day' }), /\b(?:snow|fog)\b/i, 'weather words in a name are dropped');
+    const evil = placePrompt({ name: 'Evil|/imagine{{user}}\nplaza' + 'x'.repeat(900), type: 'a|b', slot: 'day' });
+    assert.ok(!/[|\n]|\{\{|\}\}/.test(evil));
+    assert.ok(evil.length <= 400);
+    const portrait = portraitPrompt({ label: 'a dock guard', look: '', tags: ['tired', 'armed'] });
+    assert.match(portrait, /dock guard/);
+    assert.match(portrait, /tired/);
+    assert.match(portraitPrompt({ label: 'Mara', look: 'a weathered woman in an oilskin coat', tags: [] }), /oilskin coat/);
+    assert.ok(!/[|]|\{\{/.test(portraitPrompt({ label: 'x|y', look: 'z{{char}}', tags: [] })));
+    assert.match(itemPrompt({ name: 'Rusty Key', type: 'key', description: 'd'.repeat(300) }), /Rusty Key/);
+    assert.ok(itemPrompt({ name: 'Rusty Key', type: 'key', description: 'd'.repeat(300) }).length < 300, 'description is clamped to 120');
+});
+
+t('art: itemBrief only knows items the player holds or sees', () => {
+    const view = { items: { mine: [{ id: 'key', name: 'Rusty Key', type: 'key' }], here: [{ id: 'lamp', name: 'Lamp', type: 'light' }] } };
+    assert.deepEqual(itemBrief(view, 'key', () => 'old and rusty'), { name: 'Rusty Key', type: 'key', description: 'old and rusty' });
+    assert.equal(itemBrief(view, 'lamp').name, 'Lamp');
+    assert.equal(itemBrief(view, 'secret-gem'), null);
+});
+
+t('art queue: one at a time, no duplicates, cap, pause after two failures, reset drops late results', async () => {
+    const done = [];
+    const failed = [];
+    let paused = 0;
+    let live = 0;
+    let overlap = 0;
+    const slow = ms => new Promise(r => setTimeout(r, ms));
+    const q = new ArtQueue({
+        cap: 3, used: () => 0,
+        generate: async job => { live++; overlap = Math.max(overlap, live); await slow(5); live--; return job.prompt === 'bad' ? '' : `/img/${job.key}.png`; },
+        onDone: (job, url) => done.push([job.key, url]), onFail: job => failed.push(job.key), onPause: () => paused++,
+    });
+    const job = (key, prompt = 'ok') => ({ key, prompt, kind: 'place', size: [1, 1] });
+    assert.equal(q.enqueue(job('a')), 'queued');
+    assert.equal(q.enqueue(job('a')), 'duplicate');
+    assert.equal(q.enqueue(job('b')), 'queued');
+    assert.equal(q.enqueue(job('c')), 'queued');
+    assert.equal(q.enqueue(job('d')), 'capped', 'cap counts queued and running');
+    await q.whenIdle();
+    assert.deepEqual(done.map(d => d[0]), ['a', 'b', 'c']);
+    assert.equal(overlap, 1, 'strictly one at a time');
+    const capped = new ArtQueue({ cap: 2, used: () => 1, generate: async () => '/x' });
+    assert.equal(capped.enqueue(job('p')), 'queued');
+    assert.equal(capped.enqueue(job('q')), 'capped', 'what the store already holds counts');
+    await capped.whenIdle();
+    // Two failures in a row pause the queue until resume().
+    const q2 = new ArtQueue({ cap: 10, generate: async j => (j.prompt === 'bad' ? '' : '/ok'), onFail: j => failed.push(j.key), onPause: () => paused++, onDone: () => {} });
+    q2.enqueue(job('x1', 'bad')); q2.enqueue(job('x2', 'bad')); q2.enqueue(job('x3', 'bad'));
+    await q2.whenIdle();
+    assert.equal(paused, 1);
+    assert.equal(q2.enqueue(job('x4')), 'paused');
+    q2.resume();
+    assert.equal(q2.enqueue(job('x5')), 'queued');
+    await q2.whenIdle();
+    // A throwing generator counts as a failure, never an unhandled rejection.
+    const q3 = new ArtQueue({ cap: 10, generate: async () => { throw new Error('boom'); }, onFail: j => failed.push(j.key) });
+    q3.enqueue(job('t1'));
+    await q3.whenIdle();
+    assert.ok(failed.includes('t1'));
+    // reset() while a job runs: its late result is dropped and the queue is empty.
+    const late = [];
+    const q4 = new ArtQueue({ cap: 10, generate: async () => { await slow(15); return '/late'; }, onDone: (j, u) => late.push(u) });
+    q4.enqueue(job('r1')); q4.enqueue(job('r2'));
+    await slow(1);
+    q4.reset();
+    await slow(40);
+    assert.deepEqual(late, [], 'nothing from the old epoch is stored');
+    assert.equal(q4.pending, 0);
+    assert.equal(q4.running, '');
 });
 
 let failed = 0;
