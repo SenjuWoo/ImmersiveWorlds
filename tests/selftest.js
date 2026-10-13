@@ -1105,6 +1105,15 @@ t('art queue: one at a time, no duplicates, cap, pause after two failures, reset
     assert.equal(q4.running, '');
 });
 
+t('art: the settings screen has the test button, the clear button, the cap and the generated option', () => {
+    const html = readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+    assert.ok(html.includes('id="iw-art-test"') && html.includes('id="iw-art-clear"'));
+    assert.ok(html.includes('data-iw-setting="artCap"'));
+    assert.ok(/<option value="art">/.test(html), 'the generated picture option is selectable');
+    const index = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+    assert.ok(index.includes("`/imagine quiet=true"), 'pictures are drawn quietly: nothing is posted to the chat');
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
     try { await fn(); console.log(`  ok   ${name}`); } catch (e) { failed++; console.error(`FAIL  ${name}\n      ${e.message}`); }

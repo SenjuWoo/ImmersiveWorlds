@@ -96,7 +96,7 @@ export function paintBackdrop({ mode = 'off', kind = 'default', slot = 'day', we
     if (key) {
         const pic = document.createElement('div');
         pic.className = 'iw-bd-pic';
-        if (art) pic.style.backgroundImage = `url("${String(art).replace(/["\\\n]/g, encodeURIComponent)}")`;
+        if (art) pic.style.backgroundImage = `url("${encodeURI(String(art))}")`;
         else {
             pic.style.setProperty('--iw-sky-top', sky.top);
             pic.style.setProperty('--iw-sky-bottom', sky.bottom);

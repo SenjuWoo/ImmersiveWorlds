@@ -20,11 +20,23 @@
                     <option value="off">Off (my own background, untouched)</option>
                     <option value="tint">Time-of-day and weather grade only</option>
                     <option value="scene">Painted scene for the place you are in</option>
-                    <option value="art" disabled>Generated picture (needs Image Generation, coming in 2.4.1)</option>
+                    <option value="art">Generated picture of the place (needs an image backend in Image Generation)</option>
                 </select>
                 <small class="imx-note">Draws in its own layer above your chat background, so switching it off brings your background straight back.</small>
             </div>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="particles"><span>Weather particles (rain, snow, fog, dust)</span></label>
+
+            <h4 class="imx-h">Generated pictures</h4>
+            <small class="imx-note">Uses SillyTavern's Image Generation extension, one picture at a time, only for places and things you can see. A place gets one picture for day and one for night, drawn the first time you are there; weather is drawn over it. Nothing is drawn unless you choose "Generated picture" above or tick a box here.</small>
+            <div class="imx-field">
+                <label for="iw-art-cap">Most pictures per chat</label>
+                <input id="iw-art-cap" class="text_pole" type="number" min="4" max="40" step="1" data-iw-setting="artCap" data-type="number">
+            </div>
+            <div class="flex-container flexGap5">
+                <div id="iw-art-test" class="menu_button menu_button_icon"><i class="fa-solid fa-image"></i><span>Test image generation</span></div>
+                <div id="iw-art-clear" class="menu_button menu_button_icon"><i class="fa-solid fa-eraser"></i><span>Clear generated art</span></div>
+            </div>
+            <small id="iw-art-count" class="imx-note"></small>
 
             <h4 class="imx-h">HUD</h4>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="hud"><span>Show the HUD in the space beside the chat (scene, people, items, map)</span></label>

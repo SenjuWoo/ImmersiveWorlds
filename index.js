@@ -14,7 +14,8 @@ import { perceive, markPerceived, peek, withArticle, labelOf, REVEAL } from './s
 import { mountHud, renderHud, sideVisible, KIND_ICON } from './hud.js';
 import { HINT_SYSTEM, hintPrompt, parseHints } from './hints.js';
 import { migrateModelMode, fetchModels, modelOptions } from './models.js';
-import { placeKind, particleSpec } from './scenery.js';
+import { placeKind, particleSpec, artSlot } from './scenery.js';
+import { ART_KEY, normArt, artKey, getArt, putArt, clearArt, artCount, clampCap, placePrompt, ArtQueue } from './art.js';
 import { startParticles, stopParticles } from './particles.js';
 import { mountBackdrop, paintBackdrop, sanitizeBackdrop } from './backdrop.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
@@ -50,6 +51,9 @@ const DEFAULTS = Object.freeze({
     showStatus: true,
     backdrop: 'tint',
     particles: true,
+    artCap: 12,
+    artPortraits: false,
+    artItems: false,
     hud: true,
     spriteFaces: true,
     modelMode: 'current',
@@ -89,6 +93,7 @@ function settings() {
     for (const [from, to] of Object.entries(RENAMED)) if (from in s) { s[to] ??= s[from]; delete s[from]; }
     for (const [k, v] of Object.entries(DEFAULTS)) if (s[k] === undefined) s[k] = v;
     for (const k of Object.keys(s)) if (!(k in DEFAULTS)) delete s[k];
+    s.artCap = clampCap(s.artCap);
     return s;
 }
 
@@ -528,9 +533,81 @@ function applyAmbient() {
     const loc = currentLocation(state);
     const slot = timeSlot(state);
     const weather = weatherClass(state);
-    paintBackdrop({ mode: s.backdrop, kind: placeKind(loc.type, loc.name), slot, weather });
+    const art = s.backdrop === 'art' ? getArt(getArtStore(), artKey('place', loc.id, slot)) : '';
+    paintBackdrop({ mode: s.backdrop, kind: placeKind(loc.type, loc.name), slot, weather, art });
     const still = !s.particles || matchMedia('(prefers-reduced-motion: reduce)').matches;
     startParticles(particleSpec(weather, slot, still));
+    wantPlaceArt();
+}
+
+// ---- Generated pictures (opt in): one at a time through SillyTavern's Image Generation extension. ----
+// Art is presentation, not story state, so it lives in its own chat-metadata key that swipes and deletes never rewind.
+const getArtStore = () => { const md = ctx().chatMetadata; return md ? (md[ART_KEY] ??= normArt(null)) : normArt(null); };
+const saveArt = () => { ctx().saveMetadataDebounced(); refresh({ quiet: true }); };
+const IMAGE_PATH = /^(?:data:image\/|https?:\/\/|[\w./%~@ -]+\.(?:png|jpe?g|webp|gif|avif))/i;
+const NO_IMAGES = "Image generation isn't set up in SillyTavern. Pick an image backend in the Image Generation extension, then press Test image generation in the Immersive Worlds settings.";
+
+/** Run /imagine quietly and return the saved picture's path, or '' on any failure. */
+async function imagine(job) {
+    const [w, h] = job.size;
+    const negative = job.kind === 'place' ? 'people, text, watermark' : 'text, watermark';
+    try {
+        const res = await ctx().executeSlashCommandsWithOptions(`/imagine quiet=true width=${w} height=${h} negative="${negative}" ${job.prompt}`);
+        const url = String(res?.pipe ?? '').trim();
+        return IMAGE_PATH.test(url) ? url : '';
+    } catch (error) {
+        log('imagine failed', error);
+        return '';
+    }
+}
+
+let queue = null;
+function artQueue() {
+    return (queue ??= new ArtQueue({
+        generate: imagine,
+        cap: settings().artCap,
+        used: () => artCount(getArtStore()),
+        onDone: (job, url) => { putArt(getArtStore(), job.key, url); log('art ready', job.key, url); saveArt(); },
+        onFail: (job, error) => log('art failed', job.key, error),
+        onPause: () => toastr.warning(NO_IMAGES, TITLE),
+    }));
+}
+
+let artTimer = 0;
+/** After the place or the light settles (1.5 s), draw the backdrop for this place and art slot if it does not exist yet. */
+function wantPlaceArt() {
+    clearTimeout(artTimer);
+    const s = settings();
+    if (!s.enabled || s.backdrop !== 'art' || !getState() || busy) return;
+    artTimer = setTimeout(() => {
+        const state = getState();
+        if (!state || settings().backdrop !== 'art') return;
+        const loc = currentLocation(state);
+        const slot = timeSlot(state);
+        const key = artKey('place', loc.id, slot);
+        if (getArt(getArtStore(), key)) return;
+        const q = artQueue();
+        q.cap = settings().artCap;
+        const prompt = placePrompt({ name: loc.name, type: loc.type, season: state.clock.season, genre: state.genre, tone: state.tone, slot });
+        log('art wanted', key, q.enqueue({ key, kind: 'place', size: [1024, 576], prompt }));
+    }, 1500);
+}
+
+async function testImage() {
+    toastr.info('Drawing a small test picture…', TITLE);
+    const url = await imagine({ kind: 'place', size: [256, 256], prompt: 'a small wooden cottage in a green meadow, daylight, no people, no text' });
+    if (!url) return void toastr.error(NO_IMAGES, TITLE);
+    artQueue().resume();
+    await ctx().callGenericPopup(`<div><img src="${escapeHtml(encodeURI(url))}" alt="" style="max-width:100%;border-radius:8px"><p>Image generation works. Pictures are drawn when you enter a new place.</p></div>`, ctx().POPUP_TYPE.TEXT);
+}
+
+async function clearArtStore() {
+    const c = ctx();
+    if (!(await c.callGenericPopup('Forget every generated picture for this chat? The image files stay on disk; new ones are drawn as you play.', c.POPUP_TYPE.CONFIRM))) return;
+    clearArt(getArtStore());
+    queue?.reset();
+    saveArt();
+    syncSettingsUi();
 }
 
 function openWorldPanel(tab = activeTab) {
@@ -853,6 +930,8 @@ async function removeWorld() {
     delete c.chatMetadata[STATE_KEY];
     delete c.chatMetadata[TURN_KEY];
     delete c.chatMetadata[NOTES_KEY];
+    delete c.chatMetadata[ART_KEY];
+    queue?.reset();
     epoch += 1;
     inject();
     await c.saveMetadata();
@@ -920,6 +999,8 @@ function syncSettingsUi() {
         else el.value = String(v);
     }
     for (const el of document.querySelectorAll('[data-iw-when]')) el.hidden = el.dataset.iwWhen !== s.modelMode;
+    const count = document.getElementById('iw-art-count');
+    if (count) count.textContent = `Pictures in this chat: ${artCount(getArtStore())} of ${s.artCap}`;
 }
 
 function onSettingChange(el) {
@@ -968,6 +1049,8 @@ async function mountSettings() {
     const html = await ctx().renderExtensionTemplateAsync(`third-party/${FOLDER}`, 'settings');
     (document.getElementById('extensions_settings2') || document.getElementById('extensions_settings'))?.insertAdjacentHTML('beforeend', html);
     document.getElementById('iw-open-panel')?.addEventListener('click', () => openWorldPanel());
+    document.getElementById('iw-art-test')?.addEventListener('click', testImage);
+    document.getElementById('iw-art-clear')?.addEventListener('click', clearArtStore);
     document.getElementById('iw-model-recommend')?.addEventListener('click', () => {
         Object.assign(settings(), { modelMode: 'model', modelSource: 'openrouter', modelId: 'deepseek/deepseek-v4.1-flash' });
         ctx().saveSettingsDebounced();
@@ -1032,9 +1115,11 @@ function registerMacros() {
 function onChatChanged() {
     epoch += 1;
     queued = null;
+    queue?.reset();
     const md = ctx().chatMetadata;
     if (md?.[STATE_KEY]) markPerceived(md[STATE_KEY] = normalizeState(md[STATE_KEY]));
     if (md?.[NOTES_KEY]) md[NOTES_KEY] = normNotes(md[NOTES_KEY]);
+    if (md?.[ART_KEY]) md[ART_KEY] = normArt(md[ART_KEY]);
     inject();
     refresh({ quiet: true });
 }
