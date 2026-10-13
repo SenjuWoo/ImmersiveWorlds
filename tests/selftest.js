@@ -6,6 +6,7 @@ import {
     cleanText, transcriptOf, timeSlot, advanceClock, currentLocation, presentNpcs, isOpen, slug,
 } from '../engine.js';
 import { parseJson, isRejection, errorText } from '../llm.js';
+import { addLearned, normNotes, mergedFacts, hideFact, addNote, removeNote, factKey } from '../dossier.js';
 import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrateModelMode, RECOMMENDED } from '../models.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
@@ -167,7 +168,7 @@ t('scene brief is compact and current', () => {
 t('director prompt carries ids, exchange and the contract, and stays small', () => {
     const p = directorPrompt(world(), 'User: I look for Tom.\nIris: He went to the docks.', { detail: 'high' });
     for (const s of ['HERE market', 'EXITS docks=Docks', 'mara|Mara|fishmonger|market', 'NEW EXCHANGE', 'Upsert by id', 'at most 2 new']) assert.ok(p.includes(s), s);
-    assert.ok(p.length < 3500, `director prompt is ${p.length} chars`);
+    assert.ok(p.length < 3600, `director prompt is ${p.length} chars`);
     assert.match(directorPrompt(world(), '', { allowNewCharacters: false, allowNewItems: false, allowNewLocations: false }), /only by updating existing entries/);
 });
 
@@ -304,10 +305,10 @@ function island(s) {
     return s;
 }
 
-t('v2 world migrates to v3 silently', () => {
+t('v2 world migrates to the current schema silently', () => {
     const v2 = { version: 2, worldName: 'Old', locations: [{ id: 'a', name: 'A', type: 'room', connections: ['b'] }, { id: 'b', name: 'B', type: 'room' }], currentLocationId: 'a', npcs: [{ id: 'x', name: 'X', locationId: 'b' }] };
     const s = normalizeState(v2);
-    assert.equal(s.version, 3);
+    assert.equal(s.version, 4);
     assert.deepEqual(s.locations[0].routes, { b: { minutes: 1, sense: 'door' } });
     assert.equal(s.locations[0].visited, true, 'the current place counts as visited');
     const x = s.npcs[0];
@@ -315,7 +316,7 @@ t('v2 world migrates to v3 silently', () => {
     assert.deepEqual(x.body, { restraints: '', wearing: '', position: '', condition: '' });
     assert.deepEqual(x.mind, { mood: '', wants: '', toward: '' });
     assert.deepEqual([x.holding, x.tags, x.travel], [[], [], null]);
-    assert.deepEqual(s.scene, { ambient: '', now: '', arrived: [], left: [], note: '', peeked: [], moved: false });
+    assert.deepEqual(s.scene, { ambient: '', now: '', arrived: [], left: [], note: '', peeked: [], fresh: [], moved: false });
     assert.deepEqual(s.player.holding, []);
     assert.deepEqual(s.meta.rejected, []);
 });
@@ -527,13 +528,13 @@ t('brief stays under 800 characters', () => {
     }
 });
 
-t('director carries routes, state and sheets and stays under 3500', () => {
+t('director carries routes, state and sheets and stays under 3750', () => {
     const s = flat();
     const sheet = 'x'.repeat(400);
     const p = directorPrompt(s, 'Alex: I pick up the key.\nFern: Two clicks.', { detail: 'high' }, { fern: sheet, you: 'Alex, a nervous courier.' });
     for (const x of ['EXITS kitchen=Kitchen 1m door', 'hall=Hall 1m open', 'STATE fern: cuffed, humiliated | restraints cuffed behind her back', 'SHEETS', 'fern: xxx', 'you: Alex, a nervous courier.', '"sounds"', '"jump"', '"now"', '"you"', '"body"', 'only for people HERE', 'Sheets win']) assert.ok(p.includes(x), x);
     assert.ok(!p.includes('x'.repeat(241)), 'sheets are capped at 240 chars');
-    assert.ok(p.length < 3500, `director prompt is ${p.length} chars`);
+    assert.ok(p.length < 3750, `director prompt is ${p.length} chars`);
 });
 
 
@@ -671,6 +672,81 @@ t('models: key errors read as an instruction; mode migration keeps profiles', ()
     assert.equal(migrateModelMode({ profileId: 'p1' }), 'profile');
     assert.equal(migrateModelMode({}), 'current');
     assert.equal(migrateModelMode({ modelMode: 'model', profileId: 'p1' }), 'model');
+});
+
+t('dossier: addLearned dedupes, coerces kinds, clamps, and caps by role', () => {
+    const npc = { id: 'mara', main: true, learned: [] };
+    const a = addLearned(npc, [{ k: 'like', t: 'Likes tea' }, { k: 'like', t: 'likes tea.' }, { k: 'weird', t: 'x'.repeat(300) }, { t: 'a' }, { t: 'b' }], 'D1 09:00');
+    assert.equal(a.length, 3, 'three per call');
+    assert.equal(npc.learned[1].k, 'other');
+    assert.equal(npc.learned[1].t.length, 120);
+    assert.equal(addLearned(npc, [{ k: 'like', t: 'LIKES TEA' }], 'D1 09:05').length, 0);
+    const bg = { id: 'tom', main: false, learned: [] };
+    for (let i = 0; i < 4; i++) addLearned(bg, [{ k: 'history', t: `fact ${i}a` }, { k: 'history', t: `fact ${i}b` }], 'D1');
+    assert.equal(bg.learned.length, 6, 'background people keep 6');
+    assert.equal(bg.learned.at(-1).t, 'fact 3b', 'newest kept');
+    const big = { id: 'b', main: true, learned: [] };
+    for (let i = 0; i < 8; i++) addLearned(big, [{ k: 'like', t: `thing ${i}a` }, { k: 'like', t: `thing ${i}b` }], 'D1');
+    assert.equal(big.learned.length, 14);
+});
+
+t('dossier: weak kinds are dropped first when full', () => {
+    const npc = { id: 'p', main: false, learned: [] };
+    addLearned(npc, [{ k: 'trait', t: 'quiet' }, { k: 'bond', t: 'owes me' }, { k: 'promise', t: 'will help' }], 'D1');
+    addLearned(npc, [{ k: 'like', t: 'cats' }, { k: 'like', t: 'dogs' }, { k: 'like', t: 'birds' }], 'D1');
+    addLearned(npc, [{ k: 'like', t: 'fish' }], 'D1');
+    assert.ok(!npc.learned.some(f => f.t === 'quiet'), 'the trait went first');
+    assert.ok(npc.learned.some(f => f.t === 'owes me'));
+});
+
+t('dossier: a patch records facts for known people only, reports fresh ones, never repeats', () => {
+    const s = world();
+    const patch = { learned: [{ id: 'mara', k: 'like', t: 'Loves the smell of tar' }, { id: 'ghost', k: 'like', t: 'nothing' }, 'junk', null] };
+    const next = applyPatch(s, patch);
+    const mara = () => next.npcs.find(n => n.id === 'mara');
+    assert.deepEqual(mara().learned.map(f => f.t), ['Loves the smell of tar']);
+    assert.deepEqual(next.scene.fresh, [{ id: 'mara', t: 'Loves the smell of tar' }]);
+    assert.ok(mara().learned[0].at.startsWith('D'), 'dated with the world clock');
+    const again = applyPatch(next, patch);
+    assert.equal(again.npcs.find(n => n.id === 'mara').learned.length, 1);
+    assert.deepEqual(again.scene.fresh, []);
+    assert.doesNotThrow(() => applyPatch(again, { learned: 'nope' }));
+});
+
+t('dossier: v3 worlds load with empty dossiers; the narrator note never carries them', () => {
+    const v3 = normalizeState({ version: 3, locations: [{ id: 'a', name: 'A' }], npcs: [{ id: 'x', name: 'X', locationId: 'a', main: true }] });
+    assert.equal(v3.version, 4);
+    assert.deepEqual(v3.npcs[0].learned, []);
+    const s = world();
+    const before = sceneBrief(s);
+    s.npcs[0].learned = [{ k: 'like', t: 'Secret recipe', at: 'D1' }];
+    assert.equal(sceneBrief(s), before);
+    assert.ok(!buildInjection(s).includes('Secret recipe'));
+});
+
+t('dossier: the director sees the contract and what is already recorded', () => {
+    const s = world();
+    s.npcs[0].learned = [{ k: 'like', t: 'Loves tar', at: 'D1' }];
+    const p = directorPrompt(s, 'Alex: hi', {});
+    assert.ok(p.includes('"learned"') && p.includes('never hidden facts'));
+    assert.ok(p.includes('KNOWN mara: Loves tar'));
+});
+
+t('dossier: notes and deletions live outside the world and merge on top of it', () => {
+    const npc = { id: 'mara', learned: [{ k: 'like', t: 'Loves tar', at: 'D1' }, { k: 'history', t: 'Left home at 12', at: 'D1' }] };
+    const store = normNotes(null);
+    assert.deepEqual(mergedFacts(npc, store).map(f => f.t), ['Loves tar', 'Left home at 12']);
+    hideFact(store, factKey(npc, npc.learned[0]));
+    const note = addNote(store, 'mara', 'Ask about the harbour', 'D1 10:00');
+    assert.deepEqual(mergedFacts(npc, store).map(f => f.t), ['Left home at 12', 'Ask about the harbour']);
+    assert.equal(mergedFacts(npc, store).at(-1).own, true);
+    npc.learned.push({ k: 'like', t: 'LOVES TAR!', at: 'D2' });
+    assert.equal(mergedFacts(npc, store).filter(f => /tar/i.test(f.t)).length, 0, 'a deleted fact stays deleted when the director repeats it');
+    removeNote(store, 'mara', note.id);
+    assert.equal(store.notes.mara, undefined);
+    const roundTrip = normNotes(JSON.parse(JSON.stringify(store)));
+    assert.deepEqual(roundTrip.hidden, store.hidden);
+    assert.equal(addNote(store, 'mara', '   ', 'D1'), null);
 });
 
 let failed = 0;

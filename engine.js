@@ -1,10 +1,11 @@
 // Pure living-world engine: schema, scene brief, director contract, patch application.
 // No SillyTavern imports, so tests run it under plain node.
 import { normalizeRoutes, shortestPath, capMinutes, sendNpc, tickTravel } from './rules.js';
+import { normLearned, addLearned, CAPS } from './dossier.js';
 
 export const STATE_KEY = 'immersive_worlds_state_v1';
 export const TURN_KEY = 'immersive_worlds_turn_v1';
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 export const SLOTS = ['dawn', 'day', 'dusk', 'night'];
 const MAX_CHRONICLE = 40;
 const DONE = new Set(['resolved', 'complete', 'completed', 'failed', 'ended', 'closed', 'abandoned', 'finished']);
@@ -137,7 +138,9 @@ export function normalizeState(input) {
         travel: x.travel && ids.has(slug(x.travel.to, '')) && Number.isFinite(Number(x.travel.eta)) ? { to: slug(x.travel.to, ''), eta: Number(x.travel.eta) } : null,
         main: typeof x.main === 'boolean' ? x.main : Boolean(x.materializedAvatar), // card characters; everyone else is background
         hidden: str(x.hidden, 200),
+        learned: normLearned(x.learned),
     }));
+    for (const n of s.npcs) n.learned = n.learned.slice(-(n.main ? CAPS.main : CAPS.bg));
     s.items = list(s.items).filter(x => typeof x === 'object').map((x, i) => ({
         id: slug(x.id || x.name || `item-${i + 1}`, 'item'),
         name: str(x.name, 120) || `Item ${i + 1}`,
@@ -170,6 +173,7 @@ export function normalizeState(input) {
         left: list(scene.left).filter(x => x && typeof x === 'object' && x.id).map(x => ({ id: str(x.id, 60), toward: str(x.toward, 60) })).slice(0, 12),
         note: str(scene.note, 300),
         peeked: strList(scene.peeked, 12, 60),
+        fresh: list(scene.fresh).filter(x => x && typeof x === 'object' && x.id && x.t).map(x => ({ id: str(x.id, 60), t: str(x.t, 120) })).slice(0, 12),
         moved: scene.moved === true, // the user just chose where to be; the next director pass may not move them
     };
     const here = s.locations.find(l => l.id === s.currentLocationId);
@@ -294,9 +298,10 @@ const PATCH_CONTRACT = `Return one JSON object containing only what changed (omi
 "npcs":[{"id","name","role","appearance","personality","goals":[],"relationship","locationId","status","nameKnown":true,"routine":{"dawn|day|dusk|night":"loc id"},"body":{"restraints","wearing","position","condition"},"mind":{"mood","wants","toward"},"holding":[],"tags":["2-3 short facts {{user}} noticed"],"hidden":"truth {{user}} cannot perceive"}],
 "items":[{"id","name","type","description","rarity","quantity","ownerId","locationId"}],
 "events"/"quests":[{"id","name","description","status"}],"factions":[{"id","name","description","members":[]}],
-"chronicle":["at most 3 terse continuity facts"]}
+"chronicle":["at most 3 terse continuity facts"],
+"learned":[{"id","k":"like|dislike|interest|history|trait|bond|promise","t":"≤12 words"}]}
 Upsert by id: a known id patches only the fields you send; a new id needs every field and a link (connections+routes, owner/place, locationId and routine). Ids are lowercase-hyphen slugs. status "resolved" or "failed" closes a thread. ownerId "player" = {{user}} carries it.
-State fields only for people HERE. People with a SHEETS line are main; others are background: tags only. For main people, body/mind/holding/tags = what {{user}} actually noticed (looked away or covered = not noticed); mind = {{user}}'s read, hedged with "?" (wants: "some time alone?"), never true intent; truth {{user}} can't perceive goes in "hidden" (one line). nameKnown once {{user}} learned the name. you = {{user}}'s visible state from their own words, never feelings. Animals and people are never items (animals go in npcs). move_to only when {{user}}'s own message takes them somewhere, never because the narration placed them. Sheets win: never contradict a sheet. Everyone moves only along routes (EXITS); locationId is where someone heads.`;
+State fields only for people HERE. People with a SHEETS line are main; others are background: tags only. For main people, body/mind/holding/tags = what {{user}} actually noticed (looked away or covered = not noticed); mind = {{user}}'s read, hedged with "?" (wants: "some time alone?"), never true intent; truth {{user}} can't perceive goes in "hidden" (one line). nameKnown once {{user}} learned the name. learned = what {{user}} saw, heard or was told in the NEW EXCHANGE, max 3 per person, not already in KNOWN, never hidden facts. you = {{user}}'s visible state from their own words, never feelings. Animals and people are never items (animals go in npcs). move_to only when {{user}}'s own message takes them somewhere, never because the narration placed them. Sheets win: never contradict a sheet. Everyone moves only along routes (EXITS); locationId is where someone heads.`;
 
 function budget(detail) {
     return detail === 'maximum' ? 3 : detail === 'high' ? 2 : 1;
@@ -327,6 +332,7 @@ export function directorPrompt(state, transcript, policy = {}, sheets = {}) {
         known.length ? `PLACES ${known.map(l => `${l.id}=${l.name}`).join(', ')}` : '',
         `PEOPLE id|name|role|at|status\n${[...here, ...others].map(npcLine).join('\n') || 'none'}`,
         ...states,
+        ...here.filter(x => x.learned.length).map(x => `KNOWN ${x.id}: ${x.learned.slice(-4).map(f => f.t).join('; ')}`),
         you.length ? `YOU ${you.join(' | ')}` : '',
         sheetLines.length ? `SHEETS\n${sheetLines.join('\n')}` : '',
         items.length ? `ITEMS ${items.map(i => `${i.id}=${i.name}${i.ownerId ? `@${i.ownerId}` : ''}`).join(', ')}` : '',
@@ -530,6 +536,7 @@ export function applyPatch(state, patch, policy = {}) {
         if ('holding' in extra) n.holding = strList(extra.holding, 6, 80);
     }
     for (const n of state.npcs) if (here.has(n.id)) n.lastSeen = stamp;
+    state.scene.fresh = applyLearned(state, patch.learned, here);
     if (patch.you && typeof patch.you === 'object') {
         state.player.body = { ...state.player.body, ...fields(patch.you, YOU.filter(k => k in patch.you), 120) };
         if ('holding' in patch.you) state.player.holding = strList(patch.you.holding, 6, 80);
@@ -568,6 +575,18 @@ export function applyPatch(state, patch, policy = {}) {
     out.items = capKeeping(out.items, p.maxItems, keepHere);
     out.locations = capKeeping(out.locations, p.maxLocations, l => l.id === out.currentLocationId);
     return normalizeState(out);
+}
+
+/** Record what {{user}} learned. Only people they know of or are with can teach them anything. Returns [{id,t}] of new facts. */
+function applyLearned(state, entries, here) {
+    const byPerson = new Map();
+    for (const e of list(entries)) {
+        if (!e || typeof e !== 'object') continue;
+        const n = state.npcs.find(x => x.id === slug(e.id || e.name, ''));
+        if (n && (n.known || here.has(n.id))) byPerson.set(n.id, [...(byPerson.get(n.id) ?? []), e]);
+    }
+    const at = `D${state.clock.day} ${state.clock.time}`;
+    return [...byPerson].flatMap(([id, items]) => addLearned(state.npcs.find(x => x.id === id), items, at).map(f => ({ id, t: f.t }))).slice(0, 12);
 }
 
 // Drop the oldest entries past the cap, never the ones in the current scene.
