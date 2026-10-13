@@ -21,7 +21,7 @@ import { mountBackdrop, paintBackdrop, sanitizeBackdrop } from './backdrop.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
-export const VERSION = '2.4.0';
+export const VERSION = '2.4.1';
 const MODULE_ID = 'immersive_worlds';
 const PROMPT_ID = 'IMMERSIVE_WORLDS_STATE';
 const PANEL_ID = 'iw-panel';

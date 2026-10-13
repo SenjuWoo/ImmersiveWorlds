@@ -1,13 +1,18 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-13 · v2.4.0 · branch `main`
+Updated 2026-10-13 · v2.4.1 · branch `main`
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)
 - Sibling extension sharing `kit.js`, `llm.js` and the kit block of `style.css` byte-for-byte: `../ImmersiveAdventures` (private repo). Edit both copies together; `tests/selftest.js` fails if they drift.
-- Last known good: git tag `v2.4.0` / GitHub release zip; previous `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
-- Roadmap: `docs/superpowers/specs/2026-10-13-living-senses-design.md`; 2.3.0 plan `docs/superpowers/plans/2026-10-13-living-senses-2-3-0.md`. Scene visuals plan (2.4.0 done, 2.4.1 next): `docs/superpowers/plans/2026-10-13-scene-visuals-2-4.md`. Next: 2.4.1 (opt-in generated art through the Image Generation extension: place backdrops per day/night, portraits, item pictures; Tasks 6-10 of that plan), 2.5.0 (hourly routines, relationship bars, "while you were away", rumours and suspicions).
+- Last known good: git tag `v2.4.1` / GitHub release zip; previous `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- Roadmap: `docs/superpowers/specs/2026-10-13-living-senses-design.md`; 2.3.0 plan `docs/superpowers/plans/2026-10-13-living-senses-2-3-0.md`. Scene visuals plan (2.4.0 and 2.4.1 done): `docs/superpowers/plans/2026-10-13-scene-visuals-2-4.md`. Next: 2.5.0 (hourly routines, relationship bars, "while you were away", rumours and suspicions).
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
+
+## Verified (2026-10-13, 2.4.1)
+- `node tests/selftest.js` 102/102; `node --check` on every file
+- E2E in an isolated ST 1.19 with a stub `/imagine` (the slash command re-registered to return a tiny data-URL picture): place picture on first visit and cached; day and night one each, dawn shares day and dusk shares night; travel away mid-draw lands the picture under its own place key and the backdrop at the new place stays the painted scene; a chat switch drops a late result; two failures in a row give one toast and pause; Test resumes; cap refuses extra pictures; Clear empties; portraits from `look` or label+tags (never `appearance`), avatar people skipped; item Draw/Redraw/Remove with "Drawing…" state
+- Not verified: **a real image backend** (the prompts and the returned file path format were read from the Image Generation extension's source, not run against ComfyUI/A1111/etc.), prompt quality, how long a real picture takes
 
 ## Verified (2026-10-13, 2.4.0)
 - `node tests/selftest.js` 95/95; `node --check` on every file

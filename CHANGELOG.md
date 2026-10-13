@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.1 — 2026-10-13
+
+Scene visuals II: generated art (opt in). Worlds from 2.4 load unchanged.
+
+- Generated place pictures: choose "Generated picture" under Scene backdrop. You get one picture of the place for day and one for night, drawn the first time you are there (weather is drawn over it, dawn uses the day picture, dusk the night one). The painted scene shows until it is ready.
+- Portraits for people who have no picture of their own, drawn from how you see them (the director now writes a short `look` once per person; the sheet's appearance is never used).
+- Item pictures: a Draw button on item cards (off by default), with Redraw and Remove.
+- Uses SillyTavern's Image Generation extension, one picture at a time, with a per-chat cap (default 12), a Test image generation button and a Clear generated art button. Two failures in a row pause drawing with one message.
+- Pictures are never made from anything you have not seen, and prompts carry no weather, people or macros.
+- Tests: 102.
+
 ## 2.4.0 — 2026-10-13
 
 Scene visuals I. Worlds from 2.3 load unchanged.
