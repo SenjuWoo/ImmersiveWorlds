@@ -118,6 +118,7 @@ export function normalizeState(input) {
         name: str(x.name, 100) || `Stranger ${i + 1}`,
         role: str(x.role, 160) || 'resident',
         appearance: str(x.appearance, 900),
+        look: str(x.look, 200), // how {{user}} sees them: the only text a generated portrait may use
         personality: str(x.personality, 900),
         goals: strList(x.goals, 8, 300),
         relationship: str(x.relationship, 500) || 'unknown',
@@ -293,7 +294,7 @@ const PATCH_CONTRACT = `Return one JSON object containing only what changed (omi
 {"minutes":scene minutes passed 0-90,"jump":"sleep|wait|travel|montage if the exchange skipped time (allows 720)","weather":"","ambient":"1-2 sensory sentences","now":"1-2 sentences: what is happening right now, as {{user}} knows it","move_to":"id of the place {{user}} ended up in",
 "you":{"wearing","position","condition","holding":[]},"sounds":{"door exit id":"what {{user}} hears from there"},
 "locations":[{"id","name","type","description","connections":["id"],"routes":{"id":{"minutes":0,"sense":"open|door|none"}}}],
-"npcs":[{"id","name","role","appearance","personality","goals":[],"relationship","locationId","status","nameKnown":true,"routine":{"dawn|day|dusk|night":"loc id"},"body":{"restraints","wearing","position","condition"},"mind":{"mood","wants","toward"},"holding":[],"tags":["2-3 short facts {{user}} noticed"],"hidden":"truth {{user}} cannot perceive"}],
+"npcs":[{"id","name","role","appearance","personality","goals":[],"relationship","locationId","status","nameKnown":true,"look":"≤20 words, how {{user}} sees them, once","routine":{"dawn|day|dusk|night":"loc id"},"body":{"restraints","wearing","position","condition"},"mind":{"mood","wants","toward"},"holding":[],"tags":["2-3 short facts {{user}} noticed"],"hidden":"truth {{user}} cannot perceive"}],
 "items":[{"id","name","type","description","rarity","quantity","ownerId","locationId"}],
 "events"/"quests":[{"id","name","description","status"}],"factions":[{"id","name","description","members":[]}],
 "chronicle":["at most 3 terse continuity facts"],
@@ -464,6 +465,7 @@ export function applyPatch(state, patch, policy = {}) {
     const nested = []; // `learned` written inside an npc entry
     const people = pick(patch, 'npcs', 'new_npcs', 'npc_updates').filter(e => e && typeof e === 'object' && !Array.isArray(e)).map(raw => {
         const e = { ...raw };
+        if ('look' in e && state.npcs.some(n => (n.id === slug(e.id || e.name, 'npc') || (e.name && n.name.toLowerCase() === String(e.name).toLowerCase())) && n.look)) delete e.look; // set once, then fixed
         const extra = {};
         for (const k of STATE_FIELDS) if (k in e) { extra[k] = e[k]; delete e[k]; }
         if ('learned' in e) {

@@ -138,10 +138,10 @@ function ideasHtml() {
     return `<div class="iw-hud-ideas"><button type="button" class="iw-hud-bulb" data-iw-hint title="What could I do next?"><i class="fa-solid fa-lightbulb"></i> Ideas</button>${list}</div>`;
 }
 
-// Expression sprite, else avatar, else a monogram in the person's own colour: everyone gets a face.
+// Expression sprite, else avatar, else a generated portrait, else a monogram in the person's own colour: everyone gets a face.
 function face(p) {
     const sprite = handlers.spriteUrl?.(p) || '';
-    const url = sprite || handlers.avatarUrl?.(p) || '';
+    const url = sprite || handlers.avatarUrl?.(p) || handlers.artUrl?.(p) || '';
     if (url) return `<img class="iw-hud-face ${sprite ? 'is-sprite' : ''}" src="${esc(url)}" alt="" loading="lazy">`;
     const m = monogram(p.label);
     return `<span class="iw-hud-face is-mono" style="--iw-hue:${m.hue}" aria-hidden="true">${esc(m.letter)}</span>`;

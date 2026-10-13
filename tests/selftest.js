@@ -1114,6 +1114,27 @@ t('art: the settings screen has the test button, the clear button, the cap and t
     assert.ok(index.includes("`/imagine quiet=true"), 'pictures are drawn quietly: nothing is posted to the chat');
 });
 
+t('look: kept and trimmed, set once by the director, shown only for people you know', () => {
+    const w = world();
+    const mara = () => w.npcs.find(n => n.id === 'mara');
+    assert.equal(normalizeState({ npcs: [{ name: 'X', look: 'l'.repeat(400) }] }).npcs[0].look.length, 200);
+    assert.equal(mara().look, '', 'empty by default');
+    const a = applyPatch(w, { npcs: [{ id: 'mara', look: 'a weathered woman in an oilskin coat' }] });
+    assert.equal(a.npcs.find(n => n.id === 'mara').look, 'a weathered woman in an oilskin coat', 'set when empty');
+    const b = applyPatch(a, { npcs: [{ id: 'mara', look: 'a different person entirely' }] });
+    assert.equal(b.npcs.find(n => n.id === 'mara').look, 'a weathered woman in an oilskin coat', 'set once, then fixed');
+    const fresh = applyPatch(b, { npcs: [{ id: 'newcomer', name: 'Newcomer', role: 'sailor', look: 'a tall sailor with a scarred chin', locationId: 'market' }] });
+    assert.equal(fresh.npcs.find(n => n.id === 'newcomer').look, 'a tall sailor with a scarred chin', 'a new person arrives with one');
+    const view = n => perceive(fresh, 'senses').people.find(p => p.id === n);
+    const m = fresh.npcs.find(n => n.id === 'mara');
+    m.known = false;
+    assert.equal(view('mara')?.look ?? '', '', 'unknown people show no look');
+    m.known = true;
+    assert.equal(view('mara').look, 'a weathered woman in an oilskin coat');
+    m.appearance = 'SECRET-APPEARANCE has a tattoo of the smugglers';
+    assert.ok(!JSON.stringify(perceive(fresh, 'senses')).includes('SECRET-APPEARANCE'), 'appearance never reaches the view');
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
     try { await fn(); console.log(`  ok   ${name}`); } catch (e) { failed++; console.error(`FAIL  ${name}\n      ${e.message}`); }

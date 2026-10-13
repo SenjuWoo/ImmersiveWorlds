@@ -15,7 +15,7 @@ import { mountHud, renderHud, sideVisible, KIND_ICON } from './hud.js';
 import { HINT_SYSTEM, hintPrompt, parseHints } from './hints.js';
 import { migrateModelMode, fetchModels, modelOptions } from './models.js';
 import { placeKind, particleSpec, artSlot } from './scenery.js';
-import { ART_KEY, normArt, artKey, getArt, putArt, clearArt, artCount, clampCap, placePrompt, ArtQueue } from './art.js';
+import { ART_KEY, normArt, artKey, getArt, putArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, ArtQueue } from './art.js';
 import { startParticles, stopParticles } from './particles.js';
 import { mountBackdrop, paintBackdrop, sanitizeBackdrop } from './backdrop.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
@@ -537,7 +537,7 @@ function applyAmbient() {
     paintBackdrop({ mode: s.backdrop, kind: placeKind(loc.type, loc.name), slot, weather, art });
     const still = !s.particles || matchMedia('(prefers-reduced-motion: reduce)').matches;
     startParticles(particleSpec(weather, slot, still));
-    wantPlaceArt();
+    wantArt();
 }
 
 // ---- Generated pictures (opt in): one at a time through SillyTavern's Image Generation extension. ----
@@ -574,22 +574,34 @@ function artQueue() {
 }
 
 let artTimer = 0;
-/** After the place or the light settles (1.5 s), draw the backdrop for this place and art slot if it does not exist yet. */
-function wantPlaceArt() {
+/** After the place, the light or the company settles (1.5 s), draw what is missing and wanted: this place's backdrop for the art slot, and portraits for people with no face. */
+function wantArt() {
     clearTimeout(artTimer);
     const s = settings();
-    if (!s.enabled || s.backdrop !== 'art' || !getState() || busy) return;
+    if (!s.enabled || !getState() || busy || (s.backdrop !== 'art' && !s.artPortraits)) return;
     artTimer = setTimeout(() => {
         const state = getState();
-        if (!state || settings().backdrop !== 'art') return;
-        const loc = currentLocation(state);
-        const slot = timeSlot(state);
-        const key = artKey('place', loc.id, slot);
-        if (getArt(getArtStore(), key)) return;
+        const s2 = settings();
+        if (!state || !s2.enabled) return;
         const q = artQueue();
-        q.cap = settings().artCap;
-        const prompt = placePrompt({ name: loc.name, type: loc.type, season: state.clock.season, genre: state.genre, tone: state.tone, slot });
-        log('art wanted', key, q.enqueue({ key, kind: 'place', size: [1024, 576], prompt }));
+        q.cap = s2.artCap;
+        if (s2.backdrop === 'art') {
+            const loc = currentLocation(state);
+            const slot = timeSlot(state);
+            const key = artKey('place', loc.id, slot);
+            if (!getArt(getArtStore(), key)) {
+                const prompt = placePrompt({ name: loc.name, type: loc.type, season: state.clock.season, genre: state.genre, tone: state.tone, slot });
+                log('art wanted', key, q.enqueue({ key, kind: 'place', size: [1024, 576], prompt }));
+            }
+        }
+        if (s2.artPortraits) {
+            // Only people the HUD shows, with no sprite and no avatar, drawn from how you see them (never the sheet's appearance).
+            for (const p of perceive(state, REVEAL.includes(s2.hudReveal) ? s2.hudReveal : 'senses', { userName: ctx().name1, notes: getNotes() }).people) {
+                const key = artKey('person', p.id);
+                if (p.isYou || getArt(getArtStore(), key) || p.avatar || spriteUrl(p)) continue;
+                log('art wanted', key, q.enqueue({ key, kind: 'person', size: [512, 768], prompt: portraitPrompt({ label: p.label, look: p.look, tags: p.tags }) }));
+            }
+        }
     }, 1500);
 }
 
@@ -1130,7 +1142,7 @@ export async function init() {
     await mountSettings();
     mountBackdrop();
     bindUi();
-    mountHud({ onGo: goTo, onPeek: peekInto, onDossier: openDossier, spriteUrl, onHint: () => requestHints(), onUseHint: text => text && prefillAction(text.startsWith('*') ? text : `*${text}*`), onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
+    mountHud({ artUrl: p => getArt(getArtStore(), artKey('person', p.id)), onGo: goTo, onPeek: peekInto, onDossier: openDossier, spriteUrl, onHint: () => requestHints(), onUseHint: text => text && prefillAction(text.startsWith('*') ? text : `*${text}*`), onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
     addWandItem({ id: 'iw-wand', icon: 'fa-compass', label: 'Living World', onClick: () => openWorldPanel() });
     addWandItem({ id: 'iw-ideas', icon: 'fa-lightbulb', label: 'Ideas: what could I do?', onClick: () => requestHints() });
     registerCommands();

@@ -68,6 +68,7 @@ export function perceive(state, mode = 'senses', { userName = '', notes = null }
             mind: n.main ? pairs(n.mind, MIND) : [],
             holding: n.main ? n.holding : [],
             avatar: n.materializedAvatar,
+            look: n.known || all ? n.look : '', // how you see them; never the sheet's appearance
             learned: mergedFacts(n, notes).slice(-6).map(f => ({ k: f.k, t: f.t, own: f.own, fresh: !f.own && state.scene.fresh.some(x => x.id === n.id && x.t === f.t) })),
             isNew: state.scene.arrived.includes(n.id),
             isYou: false,
