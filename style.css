@@ -460,6 +460,21 @@ button.imx-pill:hover, button.imx-pill:focus-visible { border-color: var(--Smart
 #iw-hud[data-right="hidden"] .iw-hud-toast { right: 12px; }
 
 /* Narrow gutters: faces, names and icons only */
+.iw-hud-strip {
+    position: relative;
+    height: 44px;
+    margin-bottom: 6px;
+    overflow: hidden;
+    border-radius: 8px;
+    background: radial-gradient(circle at 78% 30%, var(--iw-light) 0, transparent 22%), linear-gradient(to bottom, var(--iw-sky-top), var(--iw-sky-bottom));
+    color: color-mix(in srgb, var(--iw-sky-bottom) 30%, #000);
+    box-shadow: var(--iw-shadow);
+}
+.iw-hud-strip svg { position: absolute; inset: auto 0 0 0; width: 100%; height: 70%; display: block; }
+.iw-hud-strip.is-fresh { animation: iw-strip-in 1s ease both; }
+@keyframes iw-strip-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .iw-hud-strip.is-fresh { animation: none; } }
+#iw-hud[data-left="compact"] .iw-hud-strip { display: none; }
 #iw-hud[data-left="compact"] .iw-hud-now, #iw-hud[data-left="compact"] .iw-hud-threads, #iw-hud[data-left="compact"] .iw-hud-item small { display: none; }
 #iw-hud[data-left="compact"] .iw-hud-place { font-size: 1.35em; }
 #iw-hud[data-left="compact"] .iw-hud-item { width: 46px; }

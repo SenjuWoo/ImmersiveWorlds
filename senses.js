@@ -1,5 +1,6 @@
 // What the user's character perceives: the HUD reads this, never the raw world. Pure, node-testable.
-import { currentLocation, presentNpcs, timeSlot, weatherIcon, atmosphereLine, isOpen, passTime, BODY, MIND, YOU } from './engine.js';
+import { currentLocation, presentNpcs, timeSlot, weatherIcon, weatherClass, atmosphereLine, isOpen, passTime, BODY, MIND, YOU } from './engine.js';
+import { placeKind } from './scenery.js';
 import { mergedFacts } from './dossier.js';
 
 export const REVEAL = ['senses', 'nearby', 'all'];
@@ -114,6 +115,8 @@ export function perceive(state, mode = 'senses', { userName = '', notes = null }
             kicker: `Day ${state.clock.day} · ${SLOT_LABEL[timeSlot(state)]}`,
             when: `${state.clock.time} · ${state.clock.weather}`,
             icon: weatherIcon(state),
+            // Only the kind, time slot and weather: never the place description, which may hold things the player has not found.
+            art: { kind: placeKind(here.type, here.name), slot: timeSlot(state), weather: weatherClass(state) },
             atmosphere: atmosphereLine(state),
             now: state.scene.now,
             threads: threadRefs.map(t => t.name),

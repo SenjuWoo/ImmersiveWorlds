@@ -1,6 +1,8 @@
 // Floating corner HUD in the empty space beside the chat column. DOM only: it draws a senses.perceive() view.
 import { escapeHtml } from './kit.js';
 import { monogram } from './faces.js';
+import { skyOf } from './scenery.js';
+import { silhouetteSvg } from './backdrop.js';
 
 const ICONS = [
     [/key/i, 'fa-key'], [/chain|cuff|shackle|rope|leash|collar/i, 'fa-link'], [/weapon|sword|blade|knife|dagger|axe|bow|spear|gun|pistol/i, 'fa-khanda'],
@@ -25,6 +27,7 @@ let pinned = '';
 let openItem = '';
 let openNode = '';
 let lastTick = null;
+let lastStrip = '';
 let ideas = { mode: 'off', tone: 'options', items: [], asked: false, loading: false };
 const lastSounds = new Map();
 let toastTimer = 0;
@@ -106,8 +109,19 @@ function draw() {
     root.querySelector('.iw-hud-map').innerHTML = mapHtml(view.scene.place, view.around);
 }
 
+// A small sky and skyline of the place you are in; fades in only when the place or the light changes.
+function stripHtml(a) {
+    if (!a) return '';
+    const key = `${a.kind}:${a.slot}`;
+    const fresh = key !== lastStrip;
+    lastStrip = key;
+    const sky = skyOf(a.slot, a.weather);
+    return `<div class="iw-hud-strip ${fresh ? 'is-fresh' : ''}" data-kind="${esc(a.kind)}" data-slot="${esc(a.slot)}" style="--iw-sky-top:${sky.top};--iw-sky-bottom:${sky.bottom};--iw-light:${sky.light}" aria-hidden="true">${silhouetteSvg(a.kind)}</div>`;
+}
+
 function sceneHtml(s) {
     return `
+        ${stripHtml(s.art)}
         <div class="iw-hud-kicker"><i class="fa-solid ${esc(s.icon)}"></i> ${esc(s.kicker)}</div>
         <div class="iw-hud-place" data-iw-hud="panel" title="Open the Living World panel">${esc(s.place)}</div>
         <div class="iw-hud-when">${esc(s.when)}</div>

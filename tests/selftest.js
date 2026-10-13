@@ -954,6 +954,17 @@ t('particles: rain falls and wraps, snow drifts sideways', () => {
     assert.ok(wrap[0].x >= 0 && wrap[0].x <= 800, 'wraps sideways');
 });
 
+t('hud strip: perceive hands the scene art kind, slot and weather and nothing from the description', () => {
+    const w = world();
+    w.locations.find(l => l.id === 'market').description = 'SECRET-DESCRIPTION trapdoor under the fishmonger';
+    const art = perceive(w, 'senses').scene.art;
+    assert.deepEqual(art, { kind: 'city', slot: 'dawn', weather: 'rain' });
+    assert.ok(!JSON.stringify(art).includes('SECRET'));
+    w.locations.find(l => l.id === 'market').type = '';
+    w.locations.find(l => l.id === 'market').name = 'The Gilded Stag';
+    assert.equal(perceive(w, 'senses').scene.art.kind, 'default');
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
     try { await fn(); console.log(`  ok   ${name}`); } catch (e) { failed++; console.error(`FAIL  ${name}\n      ${e.message}`); }
