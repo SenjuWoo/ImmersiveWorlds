@@ -40,7 +40,7 @@ The operator plays long text roleplay and has trouble keeping up with all the te
 - **Tier 0 faces**: if the person's card has Expressions sprites, show the sprite for the current mood (read the Expressions extension's cached label/sprite; no extra classification calls from us); else avatar; else a monogram disc coloured from the name. Mood maps to the existing `mind.mood` text when no sprite.
 - **Items**: type → icon + colour; small tooltip art-free.
 - **Places**: header strip rendered from place `type`, time slot and weather (CSS gradients/silhouettes/particles), crossfades on travel; weather particles (rain/snow/fog/embers) respect `prefers-reduced-motion` and a setting.
-- **Tier 1 generated art (opt-in, off by default)**: portraits for people without avatars on first meeting, place backdrop on first visit, item picture on click. Calls the Image Generation extension (`/imagine quiet=true`, returns a URL) from a single-file queue with a per-chat cap (default 12) and a visible "drawing…" state; prompts built only from *perceived* appearance tags (never `hidden`). URLs stored in `state.art[id]`; regenerate / remove per image; a "Test image generation" button in settings. Optional "use place art as chat background" (off by default; restores the user's background).
+- **Tier 1 generated art (opt-in, off by default)**: portraits for people without avatars on first meeting, place backdrop on first visit, item picture on click. Calls the Image Generation extension (`/imagine quiet=true`, returns a URL) from a single-file queue with a per-chat cap (default 12) and a visible "drawing…" state; prompts built only from *perceived* appearance tags (never `hidden`). URLs stored in `state.art[id]`; regenerate / remove per image; a "Test image generation" button in settings. Place backdrops are generated per (place, art slot): art slot `day` for dawn/day, `night` for dusk/night, so at most 2 pictures per place. Prompts carry no weather and no people (weather is drawn by particles and tint, so one picture serves every weather); dawn and dusk get a blue/amber CSS tint over the nearest picture. The picture is shown in the extension's own layer (`#iw-backdrop`) above `#bg1`, never by changing SillyTavern's background (that would lock it into the chat and grow its background list); turning it off restores the user's background.
 - Honest limit: Tier 1 only works once an image-generation backend is set up in SillyTavern; until then it stays dormant and the free tier covers faces and places.
 
 ### 3. Hints
@@ -70,7 +70,8 @@ The operator plays long text roleplay and has trouble keeping up with all the te
 
 ## Proposed release split (my call; override freely)
 - **2.3.0** model picker, dossier, hints, Tier 0 faces/items.
-- **2.4.0** place art + weather particles, Tier 1 generated art.
+- **2.4.0** drawn backdrop + real day/night grade + weather particles + HUD scene strip (no image backend needed).
+- **2.4.1** Tier 1 generated art: place backdrops, portraits, item pictures.
 - **2.5.0** hourly routines, relationship bars, recap, rumours and suspicions.
 
 ## Decisions from the builder check (my calls, not yours)
