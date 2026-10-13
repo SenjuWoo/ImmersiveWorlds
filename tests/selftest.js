@@ -6,6 +6,7 @@ import {
     cleanText, transcriptOf, timeSlot, advanceClock, currentLocation, presentNpcs, isOpen, slug,
 } from '../engine.js';
 import { parseJson, isRejection, errorText } from '../llm.js';
+import { monogram, pickSprite, spriteFolder } from '../faces.js';
 import { addLearned, normNotes, mergedFacts, hideFact, addNote, removeNote, factKey } from '../dossier.js';
 import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrateModelMode, RECOMMENDED } from '../models.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
@@ -775,6 +776,26 @@ t('HUD: a stranger keeps a description label in the dossier view, and open threa
     assert.equal(view.people.find(p => p.id === 'mara').label, 'a fishmonger');
     s.events = [{ id: 'smoke', name: 'Smoke on the hill', status: 'active', known: true }];
     assert.ok(perceive(s, 'senses').scene.threadRefs.some(t => t.id === 'smoke' && t.name === 'Smoke on the hill'));
+});
+
+t('faces: monogram is stable, ignores articles, survives empty names', () => {
+    assert.deepEqual(monogram('Fern').letter, 'F');
+    assert.equal(monogram('fern').hue, monogram('FERN').hue);
+    assert.equal(monogram('a fishmonger').letter, 'F');
+    assert.equal(monogram('').letter, '?');
+    assert.equal(monogram(null).letter, '?');
+    assert.ok(monogram('Mara').hue >= 0 && monogram('Mara').hue < 360);
+});
+
+t('faces: pickSprite prefers the mood, then neutral, then anything', () => {
+    const sprites = [{ label: 'joy', path: '/a.png' }, { label: 'neutral', path: '/b.png' }];
+    assert.equal(pickSprite(sprites, 'joy'), '/a.png');
+    assert.equal(pickSprite(sprites, 'anger'), '/b.png');
+    assert.equal(pickSprite([{ label: 'sad', path: '/c.png' }], 'anger'), '/c.png');
+    assert.equal(pickSprite([], 'joy'), '');
+    assert.equal(pickSprite(null, 'joy'), '');
+    assert.equal(spriteFolder('Fern.png'), 'Fern');
+    assert.equal(spriteFolder(''), '');
 });
 
 let failed = 0;

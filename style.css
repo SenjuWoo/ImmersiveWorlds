@@ -495,3 +495,7 @@ body.iw-ambient[data-iw-weather="storm"]::before, body.iw-ambient[data-iw-weathe
 .imx-fact > span { flex: 1; line-height: 1.45; }
 .imx-fact > small { opacity: .5; white-space: nowrap; }
 .imx-fact .menu_button { margin: 0; padding: 1px 8px; }
+
+/* Faces */
+.iw-hud-face.is-mono { font-size: 1.15em; letter-spacing: 0; background: hsl(var(--iw-hue, 30) 32% 34%); color: #fff; }
+.iw-hud-face.is-sprite { object-position: 50% 10%; background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 70%, transparent); }

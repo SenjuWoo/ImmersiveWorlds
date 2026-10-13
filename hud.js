@@ -1,5 +1,6 @@
 // Floating corner HUD in the empty space beside the chat column. DOM only: it draws a senses.perceive() view.
 import { escapeHtml } from './kit.js';
+import { monogram } from './faces.js';
 
 const ICONS = [
     [/key/i, 'fa-key'], [/chain|cuff|shackle|rope|leash|collar/i, 'fa-link'], [/weapon|sword|blade|knife|dagger|axe|bow|spear|gun|pistol/i, 'fa-khanda'],
@@ -112,10 +113,13 @@ function sceneHtml(s) {
         ${s.threads.length ? `<div class="iw-hud-threads"><span>Stirring</span> · ${s.threads.map(esc).join(' · ')}</div>` : ''}`;
 }
 
-// A portrait only when there is one; background people stay a name and tags.
+// Expression sprite, else avatar, else a monogram in the person's own colour: everyone gets a face.
 function face(p) {
-    const url = handlers.avatarUrl?.(p) || '';
-    return url ? `<img class="iw-hud-face" src="${esc(url)}" alt="" loading="lazy">` : '';
+    const sprite = handlers.spriteUrl?.(p) || '';
+    const url = sprite || handlers.avatarUrl?.(p) || '';
+    if (url) return `<img class="iw-hud-face ${sprite ? 'is-sprite' : ''}" src="${esc(url)}" alt="" loading="lazy">`;
+    const m = monogram(p.label);
+    return `<span class="iw-hud-face is-mono" style="--iw-hue:${m.hue}" aria-hidden="true">${esc(m.letter)}</span>`;
 }
 
 function cardHtml(p) {

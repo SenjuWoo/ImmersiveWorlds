@@ -12,6 +12,7 @@ import { backgroundGenerate, parseJson, errorText, isRejection } from './llm.js'
 import { escapeHtml, openPanel, paintPanel, isPanelOpen, statusSlot, addWandItem, empty } from './kit.js';
 import { perceive, markPerceived, peek, withArticle, labelOf, REVEAL } from './senses.js';
 import { mountHud, renderHud, sideVisible, KIND_ICON } from './hud.js';
+import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
 export const VERSION = '2.2.0';
@@ -44,6 +45,7 @@ const DEFAULTS = Object.freeze({
     showStatus: true,
     ambientEffects: true,
     hud: true,
+    spriteFaces: true,
     hudReveal: 'senses',
     suspendDirectorOnApiError: true,
     debug: false,
@@ -428,6 +430,13 @@ function avatarUrl(person) {
     const c = ctx();
     if (person.isYou) return user_avatar ? c.getThumbnailUrl('persona', user_avatar) : '';
     return person.avatar ? c.getThumbnailUrl('avatar', person.avatar) : '';
+}
+
+/** The card's expression sprite for its current mood, when the Expressions extension has sprites for it. */
+function spriteUrl(person) {
+    if (!settings().spriteFaces || person.isYou || !person.avatar) return '';
+    const folder = spriteFolder(person.avatar);
+    return pickSprite(spritesFor(folder, () => paintHud(true)), expressionOf(folder));
 }
 
 function paintStatus() {
@@ -938,12 +947,15 @@ export async function init() {
     settings();
     await mountSettings();
     bindUi();
-    mountHud({ onGo: goTo, onPeek: peekInto, onDossier: openDossier, onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
+    mountHud({ onGo: goTo, onPeek: peekInto, onDossier: openDossier, spriteUrl, onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
     addWandItem({ id: 'iw-wand', icon: 'fa-compass', label: 'Living World', onClick: () => openWorldPanel() });
     registerCommands();
     registerMacros();
     c.eventSource.on(c.eventTypes.CHAT_CHANGED, onChatChanged);
     c.eventSource.on(c.eventTypes.MESSAGE_RECEIVED, onMessageReceived);
+    // Expressions settles its sprite just after the message renders; redraw once it has.
+    c.eventSource.on(c.eventTypes.CHARACTER_MESSAGE_RENDERED, () => { if (settings().spriteFaces && getState()) setTimeout(() => paintHud(true), 1200); });
+    loadExpressions();
     c.eventSource.on(c.eventTypes.MESSAGE_SWIPED, onMessageSwiped);
     c.eventSource.on(c.eventTypes.MESSAGE_DELETED, onMessageDeleted);
     onChatChanged();
