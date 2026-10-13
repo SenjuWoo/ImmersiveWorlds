@@ -10,7 +10,7 @@ Updated 2026-10-13 · v2.4.0 · branch `main`
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
 
 ## Verified (2026-10-13, 2.4.0)
-- `node tests/selftest.js` 91/91; `node --check` on every file
+- `node tests/selftest.js` 95/95; `node --check` on every file
 - E2E in an isolated ST 1.19 (own data dir, port 8123, world injected into chat metadata): backdrop for dawn/day/dusk/night with clear, rain, snow, fog, storm over harbor, city, tavern and interior places; modes grade/painted/off (layer hides, particle canvas removed); particles on/off; HUD strip at full width and hidden when compact; 375 px width has no horizontal scroll; no console errors
 - Found and fixed in E2E: a fixed layer with insets collapsed on phones (the body is fixed there), so the layer is sized like ST's `#bg1`; the grade over a painted scene is light (min .15) or night became black
 - Not verified: reduced-motion emulation (logic reads `prefers-reduced-motion`), a real SillyTavern 1.18, silhouettes against user themes with light text

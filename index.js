@@ -16,7 +16,7 @@ import { HINT_SYSTEM, hintPrompt, parseHints } from './hints.js';
 import { migrateModelMode, fetchModels, modelOptions } from './models.js';
 import { placeKind, particleSpec } from './scenery.js';
 import { startParticles, stopParticles } from './particles.js';
-import { mountBackdrop, paintBackdrop, migrateBackdrop } from './backdrop.js';
+import { mountBackdrop, paintBackdrop, sanitizeBackdrop } from './backdrop.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
@@ -85,7 +85,7 @@ function settings() {
     const all = ctx().extensionSettings;
     const s = all[MODULE_ID] ??= {};
     if (s.modelMode === undefined) s.modelMode = migrateModelMode(s); // 2.2 had only a profile
-    if (s.backdrop === undefined) s.backdrop = migrateBackdrop(s); // 2.3 had a tint checkbox
+    s.backdrop = sanitizeBackdrop(s); // 2.3 had a tint checkbox; a stray value is replaced, not kept
     for (const [from, to] of Object.entries(RENAMED)) if (from in s) { s[to] ??= s[from]; delete s[from]; }
     for (const [k, v] of Object.entries(DEFAULTS)) if (s[k] === undefined) s[k] = v;
     for (const k of Object.keys(s)) if (!(k in DEFAULTS)) delete s[k];

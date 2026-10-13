@@ -9,7 +9,8 @@ Scene visuals I. Worlds from 2.3 load unchanged.
 - Weather particles: rain, storm, snow, fog and dust, with a setting; none under reduced motion.
 - Scene strip: a small sky and skyline at the top of the HUD scene card.
 - The "Tint the screen by time of day" checkbox became "Scene backdrop"; your choice carries over.
-- Tests: 91.
+- Weather is read from free text ("light rain", "thick fog"), so particles and the grade follow what the model really writes.
+- Tests: 95.
 
 ## 2.3.0 — 2026-10-13
 

@@ -21,17 +21,26 @@ const KEYWORDS = {
     interior: kw(['room', 'house', 'hall', 'kitchen', 'bedroom', 'cabin', 'office', 'apartment', 'flat', 'castle', 'keep', 'library', 'lab', 'cell', 'barracks', 'manor']),
 };
 
-/** Which silhouette a place gets, from its free-text type and name. Unknown or non-string input is 'default'. */
+/** Which silhouette a place gets. The type is the model's own label and wins; the name is only the fallback ("The Street Cat" is still a tavern). */
 export function placeKind(type, name) {
-    const text = `${typeof type === 'string' ? type : ''} ${typeof name === 'string' ? name : ''}`;
-    return PLACE_KINDS.find(k => KEYWORDS[k]?.test(text)) ?? 'default';
+    const of = text => (typeof text === 'string' ? PLACE_KINDS.find(k => KEYWORDS[k]?.test(text)) : undefined);
+    return of(type) ?? of(name) ?? 'default';
 }
 
 /** Generated art has two pictures per place: dawn and day share one, dusk and night the other. */
 export const artSlot = slot => (slot === 'dusk' || slot === 'night' ? 'night' : 'day');
 
-const WEATHER_ALIAS = { rainy: 'rain', raining: 'rain', drizzle: 'rain', thunderstorm: 'storm', stormy: 'storm', snowing: 'snow', mist: 'fog', misty: 'fog', foggy: 'fog', humid: 'hot', heat: 'hot', sunny: 'clear' };
-const weatherOf = w => { const k = String(w ?? '').toLowerCase().replace(/[^a-z]+/g, ''); return WEATHER_ALIAS[k] ?? k; };
+// The director writes weather as free text ("light rain", "thick fog"), so match by keyword, most specific first.
+const WEATHER_WORDS = [
+    ['storm', /\b(?:storm|thunder|lightning)/], ['snow', /\b(?:snow|blizzard|sleet|flurr)/], ['rain', /\b(?:rain|drizzle|shower|downpour)/], ['fog', /\b(?:fog|mist)/],
+    ['haze', /\b(?:haze|smog)/], ['overcast', /\bovercast/], ['cloudy', /\bcloud/], ['wind', /\b(?:wind|gale|breez)/], ['hot', /\b(?:hot|heat|scorch|swelter|humid)/], ['cold', /\b(?:cold|freez|frost|chill)/],
+];
+/** One of storm snow rain fog haze overcast cloudy wind hot cold clear, from any weather text; unknown is clear. */
+export function weatherKind(text) {
+    const t = String(text ?? '').toLowerCase();
+    return WEATHER_WORDS.find(([, re]) => re.test(t))?.[0] ?? 'clear';
+}
+const weatherOf = weatherKind;
 const GLOOM = new Set(['rain', 'storm', 'snow', 'fog', 'overcast', 'cloudy']);
 
 // hue, saturation, lightness of the sky's top and bottom, the grade strength and the overlay tint per slot.
@@ -41,15 +50,15 @@ const SKY = {
     dusk: { top: [255, 40, 28], bottom: [18, 80, 56], dim: 0.22, tint: '255 140 60', alpha: 0.16 },
     night: { top: [232, 50, 8], bottom: [225, 40, 18], dim: 0.5, tint: '40 60 160', alpha: 0.2 },
 };
-const hsl = ([h, s, l], k = 1) => `hsl(${h} ${Math.round(s * k)}% ${l}%)`;
+const hsl = ([h, s, l], k = 1, lk = 1) => `hsl(${h} ${Math.round(s * k)}% ${Math.round(l * lk)}%)`;
 
 /** Sky colours and the screen grade for a time slot and weather. Unknown input falls back to a clear day. */
 export function skyOf(slot, weather) {
     const p = SKY[slot] ?? SKY.day;
     const bad = GLOOM.has(weatherOf(weather));
     return {
-        top: hsl(p.top, bad ? 0.45 : 1),
-        bottom: hsl(p.bottom, bad ? 0.45 : 1),
+        top: hsl(p.top, bad ? 0.45 : 1, bad ? 0.78 : 1),
+        bottom: hsl(p.bottom, bad ? 0.45 : 1, bad ? 0.78 : 1),
         light: hsl(p.bottom, 0.9),
         dim: Math.min(0.55, p.dim + (bad ? 0.08 : 0)),
         tint: p.tint,

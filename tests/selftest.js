@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
     normalizeState, baseWorld, applyPatch, travel, sceneBrief, buildInjection, directorPrompt, bootstrapPrompt,
-    cleanText, transcriptOf, timeSlot, advanceClock, currentLocation, presentNpcs, isOpen, slug,
+    cleanText, transcriptOf, timeSlot, weatherClass, advanceClock, currentLocation, presentNpcs, isOpen, slug,
 } from '../engine.js';
 import { parseJson, isRejection, errorText } from '../llm.js';
 import { hintBrief, hintPrompt, parseHints } from '../hints.js';
 import { monogram, pickSprite, spriteFolder } from '../faces.js';
 import { addLearned, normNotes, mergedFacts, hideFact, addNote, removeNote, factKey } from '../dossier.js';
 import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrateModelMode, RECOMMENDED } from '../models.js';
-import { placeKind, artSlot, skyOf, particleSpec, PLACE_KINDS } from '../scenery.js';
-import { migrateBackdrop, silhouetteSvg } from '../backdrop.js';
+import { placeKind, artSlot, skyOf, particleSpec, weatherKind, PLACE_KINDS } from '../scenery.js';
+import { migrateBackdrop, silhouetteSvg, pictureKey, gradeOf, sanitizeBackdrop } from '../backdrop.js';
 import { makeParticles, stepParticles } from '../particles.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
@@ -898,7 +898,7 @@ t('scenery: skyOf differs per slot and the grade is capped', () => {
 
 t('scenery: particleSpec follows the weather and respects reduced motion', () => {
     assert.equal(particleSpec('rainy', 'day').kind, 'rain');
-    assert.equal(particleSpec('Eldritch Haze', 'day').kind, null);
+    assert.equal(particleSpec('eldritch glow', 'day').kind, null);
     assert.equal(particleSpec('', 'day').kind, null);
     assert.ok(particleSpec('storm', 'day').count > particleSpec('rain', 'day').count);
     assert.equal(particleSpec('snowing', 'night').kind, 'snow');
@@ -942,8 +942,7 @@ t('particles: makeParticles fills the box and caps the count', () => {
 t('particles: rain falls and wraps, snow drifts sideways', () => {
     const rain = [{ x: 10, y: 590, vx: 40, vy: 600, r: 1, a: 1 }];
     stepParticles(rain, 'rain', 800, 600, 0.05);
-    assert.ok(rain[0].y < 590 || rain[0].y >= 0, 'stays inside after the wrap');
-    assert.ok(rain[0].y <= 600);
+    assert.ok(Math.abs(rain[0].y - 20) < 1e-9, '590 + 600 * 0.05 wraps to 20');
     const fall = [{ x: 10, y: 100, vx: 0, vy: 600, r: 1, a: 1 }];
     stepParticles(fall, 'rain', 800, 600, 0.05);
     assert.ok(fall[0].y > 100, 'rain moves down');
@@ -963,6 +962,48 @@ t('hud strip: perceive hands the scene art kind, slot and weather and nothing fr
     w.locations.find(l => l.id === 'market').type = '';
     w.locations.find(l => l.id === 'market').name = 'The Gilded Stag';
     assert.equal(perceive(w, 'senses').scene.art.kind, 'default');
+});
+
+t('scenery review: real director weather wording is understood', () => {
+    for (const [text, kind] of [['light rain', 'rain'], ['Heavy rain', 'rain'], ['rain showers', 'rain'], ['heavy snow', 'snow'], ['thick fog', 'fog'], ['thunder and rain', 'storm'], ['partly cloudy', 'cloudy'], ['Clear skies', 'clear'], ['', 'clear'], ['eldritch glow', 'clear']]) {
+        assert.equal(weatherKind(text), kind, text);
+    }
+    assert.equal(particleSpec('light rain', 'day').kind, 'rain');
+    assert.equal(particleSpec('thick fog', 'day').kind, 'fog');
+    assert.ok(skyOf('day', 'heavy rain').dim > skyOf('day', 'clear').dim);
+    assert.deepEqual(skyOf('day', 'eldritch glow'), skyOf('day', 'clear'), 'unknown weather is clear');
+    assert.equal(weatherClass({ clock: { weather: 'light rain' } }), 'rain', 'the engine and the scenery agree');
+});
+
+t('scenery review: the place type wins over words in its name, and names still work alone', () => {
+    assert.equal(placeKind('tavern', 'The Street Cat'), 'tavern');
+    assert.equal(placeKind('inn', 'The Gate House'), 'tavern');
+    assert.equal(placeKind('shop', 'Old Town Bakery'), 'market');
+    assert.equal(placeKind('', 'back alley'), 'city');
+    assert.equal(placeKind('place', 'Old Cellar'), 'cave', 'a vague type falls through to the name');
+});
+
+t('backdrop review: weather changes the painted scene key and the grade; only windows use evenodd', () => {
+    assert.notEqual(pictureKey('scene', 'city', 'day', 'clear'), pictureKey('scene', 'city', 'day', 'storm'));
+    assert.equal(pictureKey('scene', 'city', 'night', 'clear'), pictureKey('scene', 'city', 'night', 'clear'));
+    assert.equal(pictureKey('scene', 'city', 'night', 'clear'), pictureKey('scene', 'city', 'night', 'bogus-weather-twice'.replace('-twice', '')), 'unknown weather keys like clear');
+    assert.equal(pictureKey('tint', 'city', 'day', 'clear'), '');
+    assert.equal(pictureKey('art', 'city', 'day', 'clear', '/img/a.png'), 'art:/img/a.png');
+    assert.ok(gradeOf('scene', 'day', 'storm') > gradeOf('scene', 'day', 'clear'), 'storms are darker in a painted scene');
+    assert.ok(gradeOf('scene', 'night', 'clear') > gradeOf('scene', 'day', 'clear'));
+    assert.ok(gradeOf('scene', 'night', 'storm') <= 0.55);
+    assert.ok(!silhouetteSvg('market').includes('evenodd'), 'overlaps must not cut holes');
+    assert.ok(silhouetteSvg('tavern').includes('evenodd') && silhouetteSvg('interior').includes('evenodd'));
+    assert.ok(readFileSync(new URL('../settings.html', import.meta.url), 'utf8').includes('for="iw-backdrop-mode"'), 'label points at the select');
+    assert.equal(sanitizeBackdrop({ backdrop: 'bogus', ambientEffects: false }), 'off');
+    assert.equal(sanitizeBackdrop({ backdrop: 'scene' }), 'scene');
+});
+
+t('scenery review: the light slot is stable across midnight', () => {
+    const at = time => timeSlot({ clock: { time } });
+    assert.equal(at('23:59'), 'night');
+    assert.equal(at('00:01'), 'night');
+    assert.equal(artSlot(at('23:59')), artSlot(at('00:01')));
 });
 
 let failed = 0;

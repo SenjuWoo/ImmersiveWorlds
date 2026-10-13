@@ -262,7 +262,7 @@ button.imx-pill:hover, button.imx-pill:focus-visible { border-color: var(--Smart
     #iw-backdrop::before, #iw-backdrop::after, .iw-bd-pic { transition: none; }
 }
 
-/* Weather particles: under the HUD (29) and drawers, over the chat. Never takes clicks. */
+/* Weather particles: over the backdrop, under the HUD (29) and under SillyTavern's chat column (#sheld, 30), so rain falls in the side gutters and never over the text. Never takes clicks. */
 #iw-particles { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 28; pointer-events: none; }
 
 /* Immersive Worlds HUD: floats in the free space beside the chat, under drawers (3000) and MovingUI panels (4000). */

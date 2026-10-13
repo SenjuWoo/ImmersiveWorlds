@@ -10,6 +10,21 @@ export function migrateBackdrop(settings) {
     if (BACKDROP_MODES.includes(settings?.backdrop)) return settings.backdrop;
     return settings?.ambientEffects === false ? 'off' : 'tint';
 }
+/** Same, as the settings loader wants it: any saved value that is not a mode is replaced, never kept. */
+export const sanitizeBackdrop = migrateBackdrop;
+
+/** What identifies the picture on screen: a new key means a new picture (and a crossfade). Weather is in it, so the sky follows it. '' means no picture. */
+export function pictureKey(mode, kind, slot, weather, art = '') {
+    if (mode !== 'scene' && mode !== 'art') return '';
+    if (art) return `art:${art}`;
+    return `scene:${kind}:${slot}:${skyOf(slot, weather).top}`;
+}
+
+/** How dark the screen goes. Over the user's own background the time grade does all the work; over a painted scene the sky already carries the light, so it is a soft floor plus a fraction (the HUD text stays readable, storms and nights still darken). */
+export function gradeOf(mode, slot, weather) {
+    const dim = skyOf(slot, weather).dim;
+    return mode === 'tint' ? dim * 0.7 : 0.1 + dim * 0.4;
+}
 
 // Hand-drawn skylines, 1000x220, filled with the layer's silhouette colour. Small on purpose.
 const SIL = {
@@ -30,9 +45,12 @@ const SIL = {
 };
 
 /** An inline SVG skyline for a place kind; unknown kinds get the default hills. */
+// Only the drawings with real cut-outs (windows) use evenodd; elsewhere overlapping shapes must merge, not leave holes.
+const CUTOUTS = new Set(['tavern', 'interior']);
+
 export function silhouetteSvg(kind) {
-    const d = SIL[PLACE_KINDS.includes(kind) ? kind : 'default'] ?? SIL.default;
-    return `<svg viewBox="0 0 1000 220" preserveAspectRatio="xMidYMax slice" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${d}"/></svg>`;
+    const k = PLACE_KINDS.includes(kind) ? kind : 'default';
+    return `<svg viewBox="0 0 1000 220" preserveAspectRatio="xMidYMax slice" aria-hidden="true"><path fill="currentColor" fill-rule="${CUTOUTS.has(k) ? 'evenodd' : 'nonzero'}" d="${SIL[k] ?? SIL.default}"/></svg>`;
 }
 
 let layer = null;
@@ -66,12 +84,11 @@ export function paintBackdrop({ mode = 'off', kind = 'default', slot = 'day', we
     layer.dataset.mode = on ? mode : 'off';
     layer.dataset.slot = slot;
     layer.dataset.weather = weather;
-    layer.style.setProperty('--iw-dim', String(on ? (mode === 'tint' ? sky.dim * 0.7 : Math.max(0.15, sky.dim * 0.3)) : 0));
+    layer.style.setProperty('--iw-dim', String(on ? gradeOf(mode, slot, weather) : 0));
     layer.style.setProperty('--iw-tint', sky.tint);
     layer.style.setProperty('--iw-tint-a', String(on ? sky.tintAlpha : 0));
 
-    const picture = mode === 'scene' || mode === 'art';
-    const key = picture ? `${art ? `art:${art}` : `scene:${kind}:${slot}`}` : '';
+    const key = pictureKey(mode, kind, slot, weather, art);
     if (layer.dataset.pic === key) return;
     layer.dataset.pic = key;
     const old = [...layer.querySelectorAll('.iw-bd-pic')];
@@ -90,7 +107,7 @@ export function paintBackdrop({ mode = 'off', kind = 'default', slot = 'day', we
         layer.append(pic);
         if (fade) { void pic.offsetWidth; pic.classList.add('is-in'); } else pic.classList.add('is-in', 'no-fade');
     }
-    // A picture already carries its own light, so the grade over it is light (but never zero, so the HUD text stays readable); over the user's own background it is stronger.
-    // Old pictures fade out with the new one fading in, then go.
-    for (const o of old) { o.classList.remove('is-in'); setTimeout(() => o.remove(), fade ? 1400 : 0); }
+    // The new picture fades in on top of the old one (which stays solid so the user's own background never shows through), then the old goes.
+    // With no new picture (grade only) the old ones fade out instead.
+    for (const o of old) { if (!key) o.classList.remove('is-in'); setTimeout(() => o.remove(), fade ? 1400 : 0); }
 }

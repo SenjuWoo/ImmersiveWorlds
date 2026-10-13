@@ -2,6 +2,7 @@
 // No SillyTavern imports, so tests run it under plain node.
 import { normalizeRoutes, shortestPath, capMinutes, sendNpc, tickTravel } from './rules.js';
 import { normLearned, addLearned, CAPS } from './dossier.js';
+import { weatherKind } from './scenery.js';
 
 export const STATE_KEY = 'immersive_worlds_state_v1';
 export const TURN_KEY = 'immersive_worlds_turn_v1';
@@ -218,7 +219,6 @@ export function timeSlot(state) {
     return hour < 5 ? 'night' : hour < 9 ? 'dawn' : hour < 18 ? 'day' : hour < 21 ? 'dusk' : 'night';
 }
 
-const weatherKey = state => String(state.clock?.weather || 'clear').toLowerCase().replace(/[^a-z]+/g, '');
 
 const WEATHER_LINES = {
     clear: 'The sky is clear and the light is sharp.',
@@ -233,7 +233,6 @@ const WEATHER_LINES = {
     hot: 'The heat presses down, and even the shade feels tired.',
     cold: 'The cold bites; breath fogs and metal stings to the touch.',
 };
-const WEATHER_ALIAS = { sunny: 'clear', raining: 'rain', rainy: 'rain', drizzle: 'rain', thunderstorm: 'storm', stormy: 'storm', snowing: 'snow', mist: 'fog', misty: 'fog', foggy: 'fog', windy: 'wind', humid: 'hot', heat: 'hot', freezing: 'cold' };
 const TIME_LINES = {
     night: 'Lamplight pools in the dark and the world narrows to pockets of warmth.',
     dawn: 'Grey first light creeps in, washing everything in blue.',
@@ -241,13 +240,12 @@ const TIME_LINES = {
     dusk: 'Long shadows stretch and the light turns amber before it fails.',
 };
 export const WEATHER_ICONS = { clear: 'fa-sun', cloudy: 'fa-cloud', overcast: 'fa-cloud', rain: 'fa-cloud-rain', storm: 'fa-cloud-bolt', snow: 'fa-snowflake', fog: 'fa-smog', haze: 'fa-smog', wind: 'fa-wind', hot: 'fa-temperature-high', cold: 'fa-temperature-low' };
-export const weatherClass = state => { const k = weatherKey(state); return WEATHER_ALIAS[k] || (WEATHER_LINES[k] ? k : 'clear'); };
+export const weatherClass = state => weatherKind(state.clock?.weather);
 export const weatherIcon = state => (timeSlot(state) === 'night' && weatherClass(state) === 'clear') ? 'fa-moon' : WEATHER_ICONS[weatherClass(state)];
 
 export function atmosphereLine(state) {
     if (state.scene?.ambient) return state.scene.ambient;
-    const k = weatherKey(state);
-    return [WEATHER_LINES[WEATHER_ALIAS[k] || k] || '', TIME_LINES[timeSlot(state)]].filter(Boolean).join(' ');
+    return [WEATHER_LINES[weatherClass(state)] || '', TIME_LINES[timeSlot(state)]].filter(Boolean).join(' ');
 }
 
 /** Compact prose brief for the roleplay prompt: the facts the narrator should reach for. */
