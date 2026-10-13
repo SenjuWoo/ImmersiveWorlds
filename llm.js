@@ -1,5 +1,5 @@
 // Background LLM calls shared by Immersive Worlds and Immersive Adventures (kept identical in both).
-// Route: a chosen Connection Profile, else the active Chat Completion connection, else generateRaw.
+// Route: a chosen Connection Profile, else an OpenRouter model, else the active Chat Completion connection (optionally with another model name), else generateRaw.
 // Never mutates the user's global API settings, so a reply generated meanwhile is unaffected.
 
 import { EFFORT_LADDER, withLadder, friendlyOpenRouterError } from './models.js';
@@ -99,4 +99,4 @@ export function errorText(error) {
 }
 
 /** 400-class rejections: the request itself is unacceptable to this API, retrying will not help. */
-export const isRejection = error => /\b400\b|bad request|unsupported|response[_ -]?format|json[_ -]?schema|not supported/i.test(errorText(error));
+export const isRejection = error => /\b400\b|bad request|unsupported|response[_ -]?format|json[_ -]?schema|not supported|api key|did not accept the request/i.test(errorText(error));

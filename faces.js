@@ -42,7 +42,12 @@ let expressions = null;
 export function loadExpressions() {
     import('../../expressions/index.js').then(m => { expressions = m; }).catch(() => { expressions = null; });
 }
-export const expressionOf = folder => String(expressions?.lastExpression?.[folder] ?? '');
+export const expressionOf = folder => String(expressions?.lastExpression?.[String(folder).split('/')[0]] ?? '');
 
-/** ST's sprite folder for a card is its avatar file name without the extension. */
-export const spriteFolder = avatar => String(avatar ?? '').replace(/\.[^/.]+$/, '');
+/** ST's sprite folder: the character's name, unless the Expressions extension has an override path for that card's avatar file. */
+export function spriteFolder(card, overrides = []) {
+    if (!card?.name) return '';
+    const file = String(card.avatar ?? '').replace(/\.[^/.]+$/, '');
+    const hit = (Array.isArray(overrides) ? overrides : []).find(o => o?.name === file && o.path);
+    return hit ? String(hit.path) : String(card.name);
+}

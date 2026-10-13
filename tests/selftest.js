@@ -203,6 +203,8 @@ t('parseJson tolerates fences and prose', () => {
 t('error helpers', () => {
     assert.ok(isRejection(new Error('Bad Request')));
     assert.ok(!isRejection(new Error('timed out')));
+    assert.ok(isRejection(new Error('No usable OpenRouter API key in SillyTavern.')), 'a key problem pauses the director instead of toasting every reply');
+    assert.ok(isRejection(new Error('OpenRouter did not accept the request: usually a missing key')));
     assert.match(errorText(new Error('API request failed', { cause: new Error('401') })), /401/);
 });
 
@@ -802,8 +804,9 @@ t('faces: pickSprite prefers the mood, then neutral, then anything', () => {
     assert.equal(pickSprite([{ label: 'sad', path: '/c.png' }], 'anger'), '/c.png');
     assert.equal(pickSprite([], 'joy'), '');
     assert.equal(pickSprite(null, 'joy'), '');
-    assert.equal(spriteFolder('Fern.png'), 'Fern');
-    assert.equal(spriteFolder(''), '');
+    assert.equal(spriteFolder({ name: 'Seraphina', avatar: 'default_Seraphina.png' }, []), 'Seraphina', 'folder is the card name, not the file name');
+    assert.equal(spriteFolder({ name: 'Seraphina', avatar: 'default_Seraphina.png' }, [{ name: 'default_Seraphina', path: 'Sera/outfit' }]), 'Sera/outfit');
+    assert.equal(spriteFolder(null), '');
 });
 
 function hintWorld() {
@@ -847,6 +850,26 @@ t('hints: parse keeps ideas that rest on something known, clamps, dedupes, caps 
     assert.equal(hints[2].text.length, 90);
     assert.deepEqual(parseHints('not json at all', view), []);
     assert.deepEqual(parseHints('{"hints":"nope"}', view), []);
+});
+
+t('dossier: a learned list nested inside an npc entry cannot wipe or bypass the dossier', () => {
+    const s = world();
+    const mara = s.npcs.find(n => n.id === 'mara');
+    mara.learned = [{ k: 'like', t: 'Loves tar', at: 'D1' }, { k: 'history', t: 'Left home at 12', at: 'D1' }];
+    const next = applyPatch(s, { npcs: [{ id: 'mara', learned: [{ k: 'like', t: 'Figs' }] }] });
+    assert.deepEqual(next.npcs.find(n => n.id === 'mara').learned.map(f => f.t), ['Loves tar', 'Left home at 12', 'Figs'], 'added, not replaced');
+    const wiped = applyPatch(next, { npcs: [{ id: 'mara', learned: [] }] });
+    assert.equal(wiped.npcs.find(n => n.id === 'mara').learned.length, 3, 'an empty list does not wipe');
+    const ghost = applyPatch(wiped, { npcs: [{ id: 'tom', learned: ['Hates the sea', 'a', 'b', 'c', 'd'] }] });
+    assert.equal(ghost.npcs.find(n => n.id === 'tom').learned.length, 3, 'the three-per-update cap still applies');
+});
+
+t('dossier: a deleted fact stays deleted when the director files it under another kind', () => {
+    const npc = { id: 'mara', learned: [{ k: 'trait', t: 'Hates the sea', at: 'D1' }] };
+    const store = normNotes(null);
+    hideFact(store, factKey(npc, npc.learned[0]));
+    npc.learned = [{ k: 'dislike', t: 'hates the sea.', at: 'D1' }];
+    assert.equal(mergedFacts(npc, store).length, 0);
 });
 
 let failed = 0;

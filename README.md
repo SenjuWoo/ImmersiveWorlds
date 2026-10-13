@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ee6c5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.2.0"><img src="https://img.shields.io/badge/release-v2.2.0-8f9aa6?labelColor=0d0f11" alt="v2.2.0"></a>
+  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.3.0"><img src="https://img.shields.io/badge/release-v2.3.0-8f9aa6?labelColor=0d0f11" alt="v2.3.0"></a>
   <img src="https://img.shields.io/badge/SillyTavern-%E2%89%A5%201.18.0-8f9aa6?labelColor=0d0f11" alt="SillyTavern 1.18+">
 </p>
 
@@ -39,6 +39,10 @@ Immersive Worlds keeps that state in the chat and gives the model a short scene 
 ## What you get
 
 - **Immersion HUD** in the empty space beside the chat: the scene top-left (place, time, weather, what is happening right now), the people here top-right (2–3 state tags each; hover for body, mind and what they hold), items bottom-left, and a map of the places around you bottom-right
+- **Dossier on everyone**: what you have *learned* about a person (what they like and dislike, their history, what they promised, how they stand with you), dated and shown in their card; remove a fact, or add your own note; your edits survive swipes and deletes, and nothing is in the dossier that the story has not shown you
+- **Ideas button** (💡): "what could I do next?" gives up to four ideas drawn only from what you know (people's wants and what they said, things at hand, places nearby, open threads); click one to drop it into your message box (it never sends); on request, after every update, or off
+- **Faces for everyone**: the character's expression sprite when it has them, else the avatar, else a coloured monogram
+- **Pick the background model**: current connection, a connection profile, or any OpenRouter model from a live searchable list (DeepSeek V4.1 Flash is one click), or a model name on your current (local or other) connection
 - **Only what your character knows**: people's state is what you actually noticed: if you looked away or something is covered, it isn't there, and their mind is your read of them ("wants: some time alone?"), not their true intent; strangers show as "a dock guard" until someone says their name; next door is *seen* through an open way, *heard* through a door ("two voices arguing") or blank behind a wall; **Peek** through a door; a setting widens it to everything nearby or everything (secrets too)
 - **Main cast and background**: character cards are the main cast (portrait, full card, a hidden truth the narrator keeps); everyone the world invents is a background person (a name and a few tags, no portrait), which keeps prompts small
 - **Your moves are yours**: Go writes the move into your message, and nothing the narrator writes can move you somewhere you didn't go; comings and goings update the world right away, whatever "Run every" says
@@ -52,7 +56,7 @@ Immersive Worlds keeps that state in the chat and gives the model a short scene 
 - **Status strip** above the chat input (day, time, weather, place) and an optional time-of-day tint
 - **Forge** world-consistent people on demand; turn anyone into a **character card with a world lorebook**
 - Export / import world JSON; slash command and macros
-- Background calls run through a **Connection Profile** of your choice (a fast, cheap model is ideal), with reasoning switched off by default and a 120 s timeout
+- Background calls go to the model you pick (a fast, cheap one is ideal), with reasoning switched off by default and a 120 s timeout
 
 Built for adults. Any resemblance to real persons or places is coincidental.
 
@@ -87,6 +91,7 @@ The HUD needs free space beside the chat (wide windows, or a narrower Chat Width
 | `/iw start` / `/iw build` | minimal world / AI-drafted world |
 | `/iw update` | one director pass now |
 | `/iw travel Market` | walk to a place along the paths |
+| `/iw ideas` | ask for ideas now and return them |
 | `/iw brief` | return the current scene brief |
 
 Macros: `{{iwTime}}` `{{iwDay}}` `{{iwWeather}}` `{{iwLocation}}` `{{iwScene}}`.
@@ -119,7 +124,11 @@ The scene brief sits at depth 1 (`In-chat @ depth`), so everything above it, inc
 | Tint the screen by time of day | on | Ambient wash |
 | Show the HUD | on | The floating HUD beside the chat (the status strip hides while it shows) |
 | What the HUD reveals | Only what I sense | Or *Everything nearby*, or *Everything* (real names, hidden truths, secrets) |
-| Connection profile | current | Profile for background calls |
+| Background model | Current connection | Current connection, a connection profile, or *Pick a model* |
+| Send it to / Model | OpenRouter | With *Pick a model*: OpenRouter (uses the OpenRouter key saved in SillyTavern; live list with prices) or the current connection with a model name you type (local backends) |
+| Ideas button | On request | On request, after every update, or off |
+| Style | Actions | Ideas as clickable first-person actions, or gentle nudges |
+| Use expression sprites as faces | on | Character sprites when available |
 | Skip model reasoning | on | Reasoning off for world updates (faster, cheaper) |
 | Pause the director if the API rejects its request | on | Stops retry storms on providers that refuse the call |
 | Growth | Lively | How much new content each pass may add |
@@ -131,7 +140,7 @@ The scene brief sits at depth 1 (`In-chat @ depth`), so everything above it, inc
 
 ## Log
 
-The browser console (F12 → Console) always shows `[Immersive Worlds] v2.2.0 ready` and every failure with its cause. Turn on **Debug log** in the settings for the resolved settings at startup, every director pass, and every move or change the world rules rejected (with the reason); it logs at the *Verbose* level, so enable that level in the console filter.
+The browser console (F12 → Console) always shows `[Immersive Worlds] v2.3.0 ready` and every failure with its cause. Turn on **Debug log** in the settings for the resolved settings at startup, every director pass, and every move or change the world rules rejected (with the reason); it logs at the *Verbose* level, so enable that level in the console filter.
 
 ## Project map
 
@@ -142,26 +151,33 @@ engine.js       pure world model: schema, patching under the rules, scene brief,
 rules.js        pure: paths with walking time and openness, shortest routes, time caps, people in transit
 senses.js       pure: what the user's character perceives (the HUD's view), Peek
 hud.js          the floating HUD
-llm.js          background calls (Connection Profile → ChatCompletionService → generateRaw), JSON parsing
+llm.js          background calls (profile / OpenRouter model / current connection → generateRaw), JSON parsing
+models.js       OpenRouter model list, reasoning-effort fallback, error wording (identical in Immersive Adventures)
+dossier.js      what you learned about each person, your notes and removals
+hints.js        the Ideas prompt and a filter that keeps only ideas resting on things you can see
+faces.js        sprite, avatar or monogram faces
 kit.js          shared panel kit (identical in Immersive Adventures)
 settings.html   settings drawer
 style.css       shared kit block + ambient tint + HUD
 tests/          node tests/selftest.js
 ```
 
-State lives in chat metadata key `immersive_worlds_state_v1`; v1 and v2 worlds load unchanged (paths get walking times, people already shown by name stay known).
+State lives in chat metadata key `immersive_worlds_state_v1`; your dossier notes and removals live in `immersive_worlds_notes_v1`. Worlds from 1.x, 2.0, 2.1 and 2.2 load unchanged.
 
 ## Honest status
 
 Verified:
 
-- `node tests/selftest.js` — 63 tests: paths and walking time, rejected moves, user-chosen moves the director cannot undo, movement detection, people in transit, time caps, creation only where the story is, main vs background people, perceived state and hidden truth, state only for people present, perception per path openness and reveal mode, names and threads hidden until known, Peek, migration, prompt sizes
+- `node tests/selftest.js` — 79 tests (new in 2.3: dossier rules and caps, notes that survive a rewind, perceived dossier without hidden truth, ideas that never leak and are filtered to known things, faces, model list and reasoning fallback): paths and walking time, rejected moves, user-chosen moves the director cannot undo, movement detection, people in transit, time caps, creation only where the story is, main vs background people, perceived state and hidden truth, state only for people present, perception per path openness and reveal mode, names and threads hidden until known, Peek, migration, prompt sizes
 - End-to-end in an isolated SillyTavern 1.19.0 against a mock model: HUD in all four corners at 1920, 1600, 1500 and 1280 px; hover cards; arrival glow and toast; a heard room, Peek and Go; a two-hop move charged its walking time; a bogus move rejected and logged; a person walking in over time; a drawer hiding its side; reveal modes; delete rewinding the HUD; no unknown name or secret in the default HUD; world note ~590 chars, director ~3,100 chars
+- 2.3.0 end-to-end in an isolated SillyTavern 1.19.0 against a mock model: facts learned from a reply appear in the card with a "learned" toast; a note and a removed fact stay put while swiping back and forth (the swiped reply's facts come and go); Ideas lists only ideas resting on known things and a click fills the message box without sending; the model override reaches the connection; the live OpenRouter list (463 models, DeepSeek V4.1 Flash pinned first) fills the picker; an OpenRouter call without a key reads as a plain instruction; settings drawer; phone width
 - Reload persistence of the world and the HUD; Forge, Make card and swipe browsing were verified in 2.0.0 (their host code did not change; not re-run this round)
 
 Not claimed:
 
-- Director quality against every real model (it was exercised against a mock; the JSON parser is tolerant of fences and prose)
+- Director, Ideas and dossier quality against a real model (all exercised against a mock; the parsers tolerate fences and prose); in particular the extra `learned` field on DeepSeek V4.1 Flash
+- A successful OpenRouter call (no key was available; the request path and its error handling were checked)
+- Expression sprites with a real sprite pack (the lookup is feature-detected; avatar and monogram faces were checked)
 - SillyTavern 1.18 at runtime (the newer APIs used are feature-detected)
 - The HUD re-laying itself on a live window resize was checked with a synthetic resize event (the test browser pane does not fire real ones)
 

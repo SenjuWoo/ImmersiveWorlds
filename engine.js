@@ -463,10 +463,15 @@ export function applyPatch(state, patch, policy = {}) {
     // People: positions become move proposals, state waits until we know who is here.
     const moves = [];
     const later = [];
+    const nested = []; // `learned` written inside an npc entry
     const people = pick(patch, 'npcs', 'new_npcs', 'npc_updates').filter(e => e && typeof e === 'object' && !Array.isArray(e)).map(raw => {
         const e = { ...raw };
         const extra = {};
         for (const k of STATE_FIELDS) if (k in e) { extra[k] = e[k]; delete e[k]; }
+        if ('learned' in e) {
+            for (const f of list(e.learned)) nested.push({ ...(typeof f === 'object' ? f : { t: f }), id: slug(e.id || e.name, 'npc') });
+            delete e.learned;
+        }
         if ('locationId' in e) {
             const loc = findPlace(state, e.locationId);
             const existing = state.npcs.find(n => n.id === slug(e.id || e.name, 'npc') || (e.name && n.name.toLowerCase() === String(e.name).toLowerCase()));
@@ -536,7 +541,7 @@ export function applyPatch(state, patch, policy = {}) {
         if ('holding' in extra) n.holding = strList(extra.holding, 6, 80);
     }
     for (const n of state.npcs) if (here.has(n.id)) n.lastSeen = stamp;
-    state.scene.fresh = applyLearned(state, patch.learned, here);
+    state.scene.fresh = applyLearned(state, [...list(patch.learned), ...nested], here);
     if (patch.you && typeof patch.you === 'object') {
         state.player.body = { ...state.player.body, ...fields(patch.you, YOU.filter(k => k in patch.you), 120) };
         if ('holding' in patch.you) state.player.holding = strList(patch.you.holding, 6, 80);

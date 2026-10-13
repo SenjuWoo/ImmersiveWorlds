@@ -17,7 +17,7 @@ import { migrateModelMode, fetchModels, modelOptions } from './models.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
-export const VERSION = '2.2.0';
+export const VERSION = '2.3.0';
 const MODULE_ID = 'immersive_worlds';
 const PROMPT_ID = 'IMMERSIVE_WORLDS_STATE';
 const PANEL_ID = 'iw-panel';
@@ -118,11 +118,11 @@ let hintBusy = false;
 function currentIdeas() {
     const s = settings();
     const state = getState();
-    const live = Boolean(hintCache && state && hintCache.chatId === ctx().getCurrentChatId() && hintCache.tick === state.meta.tick);
+    const live = Boolean(hintCache && state && hintCache.chatId === ctx().getCurrentChatId() && hintCache.stamp === state.meta.updatedAt);
     return { mode: s.hints, tone: s.hintTone, items: live ? hintCache.items : [], asked: live, loading: hintBusy };
 }
 
-async function requestHints() {
+async function requestHints({ auto = false } = {}) {
     const s = settings();
     const state = getState();
     if (!state || s.hints === 'off' || hintBusy) return [];
@@ -131,19 +131,19 @@ async function requestHints() {
     const last = ctx().chat?.findLast(m => !m.is_system)?.mes ?? '';
     const chatId = ctx().getCurrentChatId();
     const myEpoch = epoch;
-    const tick = state.meta.tick;
+    const stamp = state.meta.updatedAt;
     hintBusy = true;
     paintHud(true);
     try {
         const raw = await backgroundGenerate({ system: HINT_SYSTEM, prompt: ctx().substituteParams(hintPrompt(view, s.hintTone, last)), maxTokens: 300, temperature: 0.8, noReasoning: s.noReasoning, ...backgroundOpts() });
         if (myEpoch !== epoch || ctx().getCurrentChatId() !== chatId) return [];
-        hintCache = { chatId, tick, items: parseHints(raw, view) };
+        hintCache = { chatId, stamp, items: parseHints(raw, view) };
         log('ideas', hintCache.items);
-        if (!hintCache.items.length || !sideVisible('left')) toastr.info(hintCache.items.map(h => h.text).join('\n') || 'Nothing new comes to mind.', 'Ideas');
+        if (!sideVisible('left') && (!auto || hintCache.items.length)) toastr.info(hintCache.items.map(h => h.text).join('\n') || 'Nothing new comes to mind.', 'Ideas');
         return hintCache.items;
     } catch (error) {
         console.warn(`[${TITLE}] ideas failed`, error);
-        toastr.warning(`Ideas skipped: ${errorText(error).slice(0, 160)}`, TITLE);
+        if (!auto) toastr.warning(`Ideas skipped: ${errorText(error).slice(0, 160)}`, TITLE);
         return [];
     } finally {
         hintBusy = false;
@@ -318,7 +318,7 @@ async function runDirector(index, { manual = false } = {}) {
             ctx().saveChat?.();
         }
         log('director patch', patch);
-        if (settings().hints === 'auto') queueMicrotask(() => requestHints());
+        if (settings().hints === 'auto') queueMicrotask(() => requestHints({ auto: true }));
         if (next.meta.rejected.length) log('rejected by world rules', next.meta.rejected);
         setState(next);
         inject();
@@ -494,7 +494,8 @@ function avatarUrl(person) {
 /** The card's expression sprite for its current mood, when the Expressions extension has sprites for it. */
 function spriteUrl(person) {
     if (!settings().spriteFaces || person.isYou || !person.avatar) return '';
-    const folder = spriteFolder(person.avatar);
+    const card = ctx().characters?.find(ch => ch.avatar === person.avatar);
+    const folder = spriteFolder(card, ctx().extensionSettings.expressionOverrides);
     return pickSprite(spritesFor(folder, () => paintHud(true)), expressionOf(folder));
 }
 
@@ -1035,7 +1036,7 @@ export async function init() {
     settings();
     await mountSettings();
     bindUi();
-    mountHud({ onGo: goTo, onPeek: peekInto, onDossier: openDossier, spriteUrl, onHint: requestHints, onUseHint: text => text && prefillAction(text.startsWith('*') ? text : `*${text}*`), onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
+    mountHud({ onGo: goTo, onPeek: peekInto, onDossier: openDossier, spriteUrl, onHint: () => requestHints(), onUseHint: text => text && prefillAction(text.startsWith('*') ? text : `*${text}*`), onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
     addWandItem({ id: 'iw-wand', icon: 'fa-compass', label: 'Living World', onClick: () => openWorldPanel() });
     addWandItem({ id: 'iw-ideas', icon: 'fa-lightbulb', label: 'Ideas: what could I do?', onClick: () => requestHints() });
     registerCommands();

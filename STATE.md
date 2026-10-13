@@ -1,12 +1,18 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-12 · v2.2.0 · branch `main`
+Updated 2026-10-13 · v2.3.0 · branch `main`
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)
 - Sibling extension sharing `kit.js`, `llm.js` and the kit block of `style.css` byte-for-byte: `../ImmersiveAdventures` (private repo). Edit both copies together; `tests/selftest.js` fails if they drift.
-- Last known good: git tag `v2.2.0` / GitHub release zip; previous `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- Last known good: git tag `v2.3.0` / GitHub release zip; previous `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- Roadmap: `docs/superpowers/specs/2026-10-13-living-senses-design.md`; 2.3.0 plan `docs/superpowers/plans/2026-10-13-living-senses-2-3-0.md`. Next: 2.4.0 (place art, weather particles, opt-in generated art through the Image Generation extension), 2.5.0 (hourly routines, relationship bars, "while you were away", rumours and suspicions).
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
+
+## Verified (2026-10-13, 2.3.0)
+- `node tests/selftest.js` 79/79 (IW) and 69/69 (Immersive Adventures after mirroring llm.js and models.js)
+- E2E in an isolated ST 1.19 (mock model on :5055): learned facts + toast, notes/removals survive swipe back and forth, Ideas filter drops unknown ids and a click fills the box without sending, model override reaches the connection (`my-local-model`), live OpenRouter list loads (463 models, DeepSeek V4.1 Flash first), OpenRouter call without a key gives the plain-language error, settings drawer, 375 px width (HUD steps aside, status strip stays)
+- Found and fixed in E2E: ST only reports "Bad Request"/"Response not OK" so the reasoning ladder now steps down on any plain rejection (not only ones naming reasoning); hidden settings rows needed a CSS rule
 
 ## Verified (2026-10-12, 2.2.0)
 - `node tests/selftest.js` 63/63
@@ -22,7 +28,8 @@ Updated 2026-10-12 · v2.2.0 · branch `main`
 - E2E in an isolated SillyTavern 1.19.0 (`--configPath/--dataRoot` + OpenAI-compatible mock): build, director pass, swipe regenerate/browse, delete rewind, forge, card + lorebook, reload, 375 px width, settings drawer
 
 ## Not verified
-- Real providers (director exercised against a mock only)
+- Real providers: director, Ideas and the new `learned` field on DeepSeek V4.1 Flash were only run against a mock; no OpenRouter key was available to test a successful call
+- Expression sprites with a real sprite pack
 - SillyTavern 1.18 at runtime (newer APIs are feature-detected)
 
 ## Design decisions

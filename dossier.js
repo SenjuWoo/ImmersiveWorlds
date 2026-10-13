@@ -39,7 +39,7 @@ export function addLearned(npc, items, at) {
 }
 
 /** Stable fingerprint of a fact, so a deletion survives the director saying it again. */
-export const factKey = (npc, fact) => `${npc.id}|${fact.k}|${sameText(fact.t)}`;
+export const factKey = (npc, fact) => `${npc.id}|${sameText(fact.t)}`;
 
 // ---- user-side store (separate chat-metadata key: swipes and deletes never rewind it) ----
 

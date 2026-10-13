@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.3.0 — 2026-10-13
+
+Living senses I. Worlds from 2.2 load unchanged.
+
+- Dossier: what you have learned about each person (likes, dislikes, interests, history, bonds, promises), dated, shown in their HUD card and a Dossier popup; remove facts or add your own notes (they survive swipes, regenerates and deletes). Only what the story showed you; the narrator prompt is untouched.
+- Ideas (💡 on the HUD, wand menu, `/iw ideas`): up to four ideas for what to do next, built only from what your character knows; click one to put it in your message box (never sent). Off / on request / after every update; clickable actions or gentle nudges.
+- Faces for everyone: expression sprite, else avatar, else a coloured monogram (background people no longer have an empty slot).
+- Background model picker: current connection, a connection profile, or Pick a model: OpenRouter via a live searchable list with prices (DeepSeek V4.1 Flash in one click), or a model name on your current local/other connection. Reasoning is turned off with a fallback ladder (none, minimal, none given) and OpenRouter errors say what to fix.
+- Director learns a compact `learned` field (max 3 facts per person per update, never hidden facts); known facts are listed so they are not repeated.
+- Tests: 79.
+
 ## 2.2.0 — 2026-10-12
 
 From play-testing 2.1.
