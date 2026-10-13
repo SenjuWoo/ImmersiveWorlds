@@ -10,6 +10,7 @@ import { hintBrief, hintPrompt, parseHints } from '../hints.js';
 import { monogram, pickSprite, spriteFolder } from '../faces.js';
 import { addLearned, normNotes, mergedFacts, hideFact, addNote, removeNote, factKey } from '../dossier.js';
 import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrateModelMode, RECOMMENDED } from '../models.js';
+import { placeKind, artSlot, skyOf, particleSpec } from '../scenery.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
 
@@ -870,6 +871,38 @@ t('dossier: a deleted fact stays deleted when the director files it under anothe
     hideFact(store, factKey(npc, npc.learned[0]));
     npc.learned = [{ k: 'dislike', t: 'hates the sea.', at: 'D1' }];
     assert.equal(mergedFacts(npc, store).length, 0);
+});
+
+t('scenery: placeKind picks a kind from free text and never throws', () => {
+    assert.equal(placeKind('plaza', 'Market Square'), 'city');
+    assert.equal(placeKind('harbor', 'Docks'), 'harbor');
+    assert.equal(placeKind('', 'The Gilded Stag'), 'default');
+    assert.equal(placeKind(null, undefined), 'default');
+    assert.equal(placeKind('Taverne', ''), 'default', 'non-English is not guessed');
+    assert.equal(placeKind('cellar', 'Old Cellar'), 'cave');
+});
+
+t('scenery: artSlot maps four slots to two pictures', () => {
+    assert.deepEqual(['dawn', 'day', 'dusk', 'night', 'bogus'].map(artSlot), ['day', 'day', 'night', 'night', 'day']);
+});
+
+t('scenery: skyOf differs per slot and the grade is capped', () => {
+    assert.ok(skyOf('night', 'clear').dim > skyOf('day', 'clear').dim);
+    assert.ok(skyOf('night', 'storm').dim <= 0.55);
+    assert.ok(skyOf('day', 'storm').dim > skyOf('day', 'clear').dim, 'bad weather darkens');
+    assert.notEqual(skyOf('day', 'clear').top, skyOf('night', 'clear').top);
+    assert.ok(skyOf('nonsense', 'nonsense').top, 'unknown input still gives a sky');
+});
+
+t('scenery: particleSpec follows the weather and respects reduced motion', () => {
+    assert.equal(particleSpec('rainy', 'day').kind, 'rain');
+    assert.equal(particleSpec('Eldritch Haze', 'day').kind, null);
+    assert.equal(particleSpec('', 'day').kind, null);
+    assert.ok(particleSpec('storm', 'day').count > particleSpec('rain', 'day').count);
+    assert.equal(particleSpec('snowing', 'night').kind, 'snow');
+    assert.equal(particleSpec('misty', 'dawn').kind, 'fog');
+    assert.equal(particleSpec('hot', 'day').kind, 'dust');
+    assert.deepEqual(particleSpec('snow', 'day', true), { kind: null, count: 0 });
 });
 
 let failed = 0;
