@@ -232,8 +232,12 @@ button.imx-pill:hover, button.imx-pill:focus-visible { border-color: var(--Smart
 
 /* Immersive Worlds scene backdrop: one fixed layer right after SillyTavern's #bg1 (z -1), below the whole UI. Never takes clicks. */
 #iw-backdrop {
-    position: fixed;
-    inset: 0;
+    /* Same box as ST's #bg1: on phones the body is itself fixed and a fixed child with insets collapses to 0 height. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     z-index: -1;
     pointer-events: none;
     overflow: hidden;
@@ -253,7 +257,7 @@ button.imx-pill:hover, button.imx-pill:focus-visible { border-color: var(--Smart
         linear-gradient(to bottom, var(--iw-sky-top, #345), var(--iw-sky-bottom, #89a));
     color: color-mix(in srgb, var(--iw-sky-bottom, #345) 30%, #000);
 }
-.iw-bd-pic svg { position: absolute; inset: auto 0 0 0; width: 100%; height: 58%; display: block; }
+.iw-bd-pic svg { position: absolute; inset: auto 0 0 0; width: 100%; height: 44%; display: block; }
 @media (prefers-reduced-motion: reduce) {
     #iw-backdrop::before, #iw-backdrop::after, .iw-bd-pic { transition: none; }
 }

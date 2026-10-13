@@ -66,7 +66,7 @@ export function paintBackdrop({ mode = 'off', kind = 'default', slot = 'day', we
     layer.dataset.mode = on ? mode : 'off';
     layer.dataset.slot = slot;
     layer.dataset.weather = weather;
-    layer.style.setProperty('--iw-dim', String(on ? sky.dim * (mode === 'tint' ? 0.7 : 1) : 0));
+    layer.style.setProperty('--iw-dim', String(on ? (mode === 'tint' ? sky.dim * 0.7 : Math.max(0.15, sky.dim * 0.3)) : 0));
     layer.style.setProperty('--iw-tint', sky.tint);
     layer.style.setProperty('--iw-tint-a', String(on ? sky.tintAlpha : 0));
 
@@ -90,6 +90,7 @@ export function paintBackdrop({ mode = 'off', kind = 'default', slot = 'day', we
         layer.append(pic);
         if (fade) { void pic.offsetWidth; pic.classList.add('is-in'); } else pic.classList.add('is-in', 'no-fade');
     }
+    // A picture already carries its own light, so the grade over it is light (but never zero, so the HUD text stays readable); over the user's own background it is stronger.
     // Old pictures fade out with the new one fading in, then go.
     for (const o of old) { o.classList.remove('is-in'); setTimeout(() => o.remove(), fade ? 1400 : 0); }
 }

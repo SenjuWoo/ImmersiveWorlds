@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ee6c5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.3.0"><img src="https://img.shields.io/badge/release-v2.3.0-8f9aa6?labelColor=0d0f11" alt="v2.3.0"></a>
+  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.4.0"><img src="https://img.shields.io/badge/release-v2.4.0-8f9aa6?labelColor=0d0f11" alt="v2.4.0"></a>
   <img src="https://img.shields.io/badge/SillyTavern-%E2%89%A5%201.18.0-8f9aa6?labelColor=0d0f11" alt="SillyTavern 1.18+">
 </p>
 
@@ -49,11 +49,12 @@ Immersive Worlds keeps that state in the chat and gives the model a short scene 
 - **World logic in code**: every path has a walking time, moving follows the paths and costs that time, people walk instead of teleporting ("heading to the Waystone"), time only jumps when the story sleeps, waits or travels, and new things appear only where the story is
 - **Living world per chat**, created only when you ask for one (chats without a world cost nothing)
 - **Build world**: one background call drafts places, people, items, factions and threads from the character card, scenario and lorebook. **Start** seeds a minimal world with no model call
+- **Scene backdrop** behind the chat, in its own layer (your own background is never touched): a time-of-day and weather grade (dawn, day, dusk, night, darker in storms), optionally a painted scene for the place you are in (city, harbor, tavern, forest, cave, ship, room and more), weather particles (rain, storm, snow, fog, dust) and a small sky-and-skyline strip in the scene card. Off in one click; particles stop under reduced motion
 - **Background director** after each reply: clock, weather, ambient line, who moved where, new people/places/items the scene implied, chronicle notes
 - **Routines** (dawn / day / dusk / night): people move with the clock, even off-screen
 - **Swipe-, regenerate- and delete-safe**: every reply caches its own world patch, so browsing swipes re-applies the right state with no extra call, and deleting a reply rewinds the world
 - Panel in SillyTavern's own style (MovingUI, theme colours, wand menu): World, People, Items, History, Manage
-- **Status strip** above the chat input (day, time, weather, place) and an optional time-of-day tint
+- **Status strip** above the chat input (day, time, weather, place) and the scene backdrop's time-of-day grade
 - **Forge** world-consistent people on demand; turn anyone into a **character card with a world lorebook**
 - Export / import world JSON; slash command and macros
 - Background calls go to the model you pick (a fast, cheap one is ideal), with reasoning switched off by default and a 120 s timeout
@@ -121,7 +122,8 @@ The scene brief sits at depth 1 (`In-chat @ depth`), so everything above it, inc
 | Run every | reply | Director every N replies |
 | Never write the user's words… | on | Agency line in the scene brief |
 | Show time and place above the chat input | on | Status strip |
-| Tint the screen by time of day | on | Ambient wash |
+| Scene backdrop | Time-of-day grade | *Off* (your own background untouched), *grade only*, or *Painted scene* for the place you are in |
+| Weather particles | on | Rain, snow, fog, dust; stops under reduced motion |
 | Show the HUD | on | The floating HUD beside the chat (the status strip hides while it shows) |
 | What the HUD reveals | Only what I sense | Or *Everything nearby*, or *Everything* (real names, hidden truths, secrets) |
 | Background model | Current connection | Current connection, a connection profile, or *Pick a model* |
@@ -140,7 +142,7 @@ The scene brief sits at depth 1 (`In-chat @ depth`), so everything above it, inc
 
 ## Log
 
-The browser console (F12 → Console) always shows `[Immersive Worlds] v2.3.0 ready` and every failure with its cause. Turn on **Debug log** in the settings for the resolved settings at startup, every director pass, and every move or change the world rules rejected (with the reason); it logs at the *Verbose* level, so enable that level in the console filter.
+The browser console (F12 → Console) always shows `[Immersive Worlds] v2.4.0 ready` and every failure with its cause. Turn on **Debug log** in the settings for the resolved settings at startup, every director pass, and every move or change the world rules rejected (with the reason); it logs at the *Verbose* level, so enable that level in the console filter.
 
 ## Project map
 
@@ -156,9 +158,12 @@ models.js       OpenRouter model list, reasoning-effort fallback, error wording 
 dossier.js      what you learned about each person, your notes and removals
 hints.js        the Ideas prompt and a filter that keeps only ideas resting on things you can see
 faces.js        sprite, avatar or monogram faces
+scenery.js      pure: place kind from free text, sky palette per time and weather, particle spec
+backdrop.js     the backdrop layer: grade, painted scene, skyline drawings
+particles.js    the weather canvas (rain, snow, fog, dust)
 kit.js          shared panel kit (identical in Immersive Adventures)
 settings.html   settings drawer
-style.css       shared kit block + ambient tint + HUD
+style.css       shared kit block + backdrop + particles + HUD
 tests/          node tests/selftest.js
 ```
 
@@ -168,9 +173,10 @@ State lives in chat metadata key `immersive_worlds_state_v1`; your dossier notes
 
 Verified:
 
-- `node tests/selftest.js` — 81 tests (new in 2.3: dossier rules and caps, a nested dossier list that cannot wipe it, deletions that survive the director rephrasing, notes that survive a rewind, perceived dossier without hidden truth, ideas that never leak and are filtered to known things, faces, model list and reasoning fallback): paths and walking time, rejected moves, user-chosen moves the director cannot undo, movement detection, people in transit, time caps, creation only where the story is, main vs background people, perceived state and hidden truth, state only for people present, perception per path openness and reveal mode, names and threads hidden until known, Peek, migration, prompt sizes
+- `node tests/selftest.js` — 91 tests (new in 2.4: place kinds from free text, sky and particle rules, backdrop settings migration, skyline drawings, particle maths, scene art in the HUD view without any place description; new in 2.3: dossier rules and caps, a nested dossier list that cannot wipe it, deletions that survive the director rephrasing, notes that survive a rewind, perceived dossier without hidden truth, ideas that never leak and are filtered to known things, faces, model list and reasoning fallback): paths and walking time, rejected moves, user-chosen moves the director cannot undo, movement detection, people in transit, time caps, creation only where the story is, main vs background people, perceived state and hidden truth, state only for people present, perception per path openness and reveal mode, names and threads hidden until known, Peek, migration, prompt sizes
 - End-to-end in an isolated SillyTavern 1.19.0 against a mock model: HUD in all four corners at 1920, 1600, 1500 and 1280 px; hover cards; arrival glow and toast; a heard room, Peek and Go; a two-hop move charged its walking time; a bogus move rejected and logged; a person walking in over time; a drawer hiding its side; reveal modes; delete rewinding the HUD; no unknown name or secret in the default HUD; world note ~590 chars, director ~3,100 chars
 - 2.3.0 end-to-end in an isolated SillyTavern 1.19.0 against a mock model: facts learned from a reply appear in the card with a "learned" toast; a note and a removed fact stay put while swiping back and forth (the swiped reply's facts come and go); Ideas lists only ideas resting on known things and a click fills the message box without sending; the model override reaches the connection; the live OpenRouter list (463 models, DeepSeek V4.1 Flash pinned first) fills the picker; an OpenRouter call without a key reads as a plain instruction; settings drawer; phone width
+- 2.4.0 end-to-end in an isolated SillyTavern 1.19.0: backdrop in all four time slots with clear, rain, snow, fog and storm over harbor, city, tavern and interior places; mode switch grade/painted/off (the layer hides and the particle canvas is removed); particles on and off; the HUD strip at full width and hidden when compact; phone width (no horizontal scroll, HUD steps aside); no console errors. Painted scenes are hand-drawn silhouettes, not generated pictures
 - Reload persistence of the world and the HUD; Forge, Make card and swipe browsing were verified in 2.0.0 (their host code did not change; not re-run this round)
 
 Not claimed:

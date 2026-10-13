@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0 — 2026-10-13
+
+Scene visuals I. Worlds from 2.3 load unchanged.
+
+- Scene backdrop: the screen now follows the time of day (dawn, day, dusk, night) and the weather, in its own layer above your chat background. It never changes your background; switching it off brings it straight back.
+- Painted scene (opt in): a drawn sky and skyline for the kind of place you are in (city, market, harbor, tavern, temple, forest, mountain, cave, desert, plains, road, ship, room).
+- Weather particles: rain, storm, snow, fog and dust, with a setting; none under reduced motion.
+- Scene strip: a small sky and skyline at the top of the HUD scene card.
+- The "Tint the screen by time of day" checkbox became "Scene backdrop"; your choice carries over.
+- Tests: 91.
+
 ## 2.3.0 — 2026-10-13
 
 Living senses I. Worlds from 2.2 load unchanged.

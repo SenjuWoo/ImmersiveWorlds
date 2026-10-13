@@ -1,13 +1,19 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-13 · v2.3.0 · branch `main`
+Updated 2026-10-13 · v2.4.0 · branch `main`
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)
 - Sibling extension sharing `kit.js`, `llm.js` and the kit block of `style.css` byte-for-byte: `../ImmersiveAdventures` (private repo). Edit both copies together; `tests/selftest.js` fails if they drift.
-- Last known good: git tag `v2.3.0` / GitHub release zip; previous `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
-- Roadmap: `docs/superpowers/specs/2026-10-13-living-senses-design.md`; 2.3.0 plan `docs/superpowers/plans/2026-10-13-living-senses-2-3-0.md`. Next: 2.4.0 (place art, weather particles, opt-in generated art through the Image Generation extension), 2.5.0 (hourly routines, relationship bars, "while you were away", rumours and suspicions).
+- Last known good: git tag `v2.4.0` / GitHub release zip; previous `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- Roadmap: `docs/superpowers/specs/2026-10-13-living-senses-design.md`; 2.3.0 plan `docs/superpowers/plans/2026-10-13-living-senses-2-3-0.md`. Scene visuals plan (2.4.0 done, 2.4.1 next): `docs/superpowers/plans/2026-10-13-scene-visuals-2-4.md`. Next: 2.4.1 (opt-in generated art through the Image Generation extension: place backdrops per day/night, portraits, item pictures; Tasks 6-10 of that plan), 2.5.0 (hourly routines, relationship bars, "while you were away", rumours and suspicions).
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
+
+## Verified (2026-10-13, 2.4.0)
+- `node tests/selftest.js` 91/91; `node --check` on every file
+- E2E in an isolated ST 1.19 (own data dir, port 8123, world injected into chat metadata): backdrop for dawn/day/dusk/night with clear, rain, snow, fog, storm over harbor, city, tavern and interior places; modes grade/painted/off (layer hides, particle canvas removed); particles on/off; HUD strip at full width and hidden when compact; 375 px width has no horizontal scroll; no console errors
+- Found and fixed in E2E: a fixed layer with insets collapsed on phones (the body is fixed there), so the layer is sized like ST's `#bg1`; the grade over a painted scene is light (min .15) or night became black
+- Not verified: reduced-motion emulation (logic reads `prefers-reduced-motion`), a real SillyTavern 1.18, silhouettes against user themes with light text
 
 ## Verified (2026-10-13, 2.3.0)
 - `node tests/selftest.js` 81/81 (IW) and 69/69 (Immersive Adventures after mirroring llm.js and models.js)
