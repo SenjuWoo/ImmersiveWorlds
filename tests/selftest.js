@@ -6,6 +6,7 @@ import {
     cleanText, transcriptOf, timeSlot, advanceClock, currentLocation, presentNpcs, isOpen, slug,
 } from '../engine.js';
 import { parseJson, isRejection, errorText } from '../llm.js';
+import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrateModelMode, RECOMMENDED } from '../models.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
 
@@ -211,7 +212,7 @@ t('manifest version matches index.js', () => {
 t('shared kit files are identical to the copy in Immersive Adventures (when checked out side by side)', () => {
     const read = url => readFileSync(url, 'utf8').replace(/\r\n/g, '\n'); // git autocrlf may differ per checkout
     const sibling = new URL('../../ImmersiveAdventures/', import.meta.url);
-    for (const f of ['kit.js', 'llm.js']) {
+    for (const f of ['kit.js', 'llm.js', 'models.js']) {
         let other;
         try { other = read(new URL(f, sibling)); } catch { return; }
         assert.equal(read(new URL(`../${f}`, import.meta.url)), other, f);
@@ -626,6 +627,50 @@ t('director: state lines only for main people; contract covers perception and ag
     assert.ok(!p.includes('STATE guard'), 'background people get no state line');
     for (const x of ['"hidden"', 'background', 'what {{user}} actually noticed', 'some time alone?', 'Animals and people are never items', "only when {{user}}'s own message"]) assert.ok(p.includes(x), x);
     assert.ok(p.length < 3600, `director prompt is ${p.length} chars`);
+});
+
+t('models: parseModels maps prices per million and skips bad rows', () => {
+    const rows = parseModels({ data: [
+        { id: 'a/b', name: 'A', context_length: 1000, pricing: { prompt: '0.0000001', completion: '0.000001' }, supported_parameters: ['reasoning'] },
+        { name: 'no id' }, null, { id: 'c/d' },
+    ] });
+    assert.equal(rows.length, 2);
+    assert.deepEqual(rows[0], { id: 'a/b', name: 'A', ctx: 1000, inPerM: 0.1, outPerM: 1, reasoning: true });
+    assert.deepEqual(parseModels({}), []);
+});
+
+t('models: modelOptions pins recommended ids, filters by query, caps', () => {
+    const list = parseModels({ data: [
+        { id: 'x/cheap', name: 'Cheap', pricing: { prompt: '0', completion: '0.0000001' } },
+        { id: 'deepseek/deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash', pricing: { prompt: '0.00000004', completion: '0.00000063' } },
+        { id: 'anthropic/claude-haiku-5.5', name: 'Haiku 5.5', pricing: { prompt: '0.000001', completion: '0.000005' } },
+        { id: 'y/pricey', name: 'Pricey', pricing: { prompt: '0.00001', completion: '0.00005' } },
+    ] });
+    assert.deepEqual(modelOptions(list).map(m => m.id), ['deepseek/deepseek-v4.1-flash', 'anthropic/claude-haiku-5.5', 'x/cheap', 'y/pricey']);
+    assert.deepEqual(modelOptions(list, 'HAIKU').map(m => m.id), ['anthropic/claude-haiku-5.5']);
+    assert.equal(modelOptions(list, '', 2).length, 2);
+    assert.ok(RECOMMENDED.includes('deepseek/deepseek-v4.1-flash'));
+});
+
+t('models: effort ladder steps down only on a reasoning rejection', async () => {
+    const seen = [];
+    const ok = await withLadder(async e => { seen.push(e); if (e !== '') throw new Error('Bad Request 400 reasoning.effort: Invalid option'); return 'fine'; });
+    assert.equal(ok, 'fine');
+    assert.deepEqual(seen, ['none', 'minimal', '']);
+    let calls = 0;
+    await assert.rejects(withLadder(async () => { calls++; throw new Error('network down'); }), /network down/);
+    assert.equal(calls, 1);
+    calls = 0;
+    await assert.rejects(withLadder(async () => { calls++; throw new Error('400 Bad Request: model not found'); }), /model not found/);
+    assert.equal(calls, 1, 'a 400 about something else is not retried');
+});
+
+t('models: key errors read as an instruction; mode migration keeps profiles', () => {
+    assert.match(friendlyOpenRouterError(new Error('401 Unauthorized')).message, /No usable OpenRouter API key/);
+    assert.equal(friendlyOpenRouterError(new Error('boom')).message, 'boom');
+    assert.equal(migrateModelMode({ profileId: 'p1' }), 'profile');
+    assert.equal(migrateModelMode({}), 'current');
+    assert.equal(migrateModelMode({ modelMode: 'model', profileId: 'p1' }), 'model');
 });
 
 let failed = 0;

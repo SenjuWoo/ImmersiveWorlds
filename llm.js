@@ -2,6 +2,8 @@
 // Route: a chosen Connection Profile, else the active Chat Completion connection, else generateRaw.
 // Never mutates the user's global API settings, so a reply generated meanwhile is unaffected.
 
+import { EFFORT_LADDER, withLadder, friendlyOpenRouterError } from './models.js';
+
 const TIMEOUT_MS = 120000;
 
 function withTimeout(promise, ms, label) {
@@ -27,9 +29,11 @@ export function listProfiles() {
  * @param {string} [o.profileId] Connection Manager profile id; '' = current connection
  * @param {number} [o.temperature]
  * @param {boolean} [o.noReasoning] ask reasoning models to skip thinking (state calls need none)
+ * @param {string} [o.model] model id override; with viaOpenRouter it is sent to OpenRouter using the key stored in SillyTavern, otherwise it replaces the model of the active connection
+ * @param {boolean} [o.viaOpenRouter]
  * @returns {Promise<string>}
  */
-export async function backgroundGenerate({ system, prompt, maxTokens, profileId = '', temperature = 0.4, noReasoning = true }) {
+export async function backgroundGenerate({ system, prompt, maxTokens, profileId = '', temperature = 0.4, noReasoning = true, model = '', viaOpenRouter = false }) {
     const ctx = SillyTavern.getContext();
     const messages = [{ role: 'system', content: system }, { role: 'user', content: prompt }];
     const signal = AbortSignal.timeout(TIMEOUT_MS);
@@ -44,10 +48,24 @@ export async function backgroundGenerate({ system, prompt, maxTokens, profileId 
         return String(res?.content ?? '');
     }
 
+    if (model && viaOpenRouter && ctx.ChatCompletionService?.createRequestData) {
+        // Straight to OpenRouter whatever the active connection is; effort steps down when a model refuses "none".
+        const send = effort => ctx.ChatCompletionService.sendRequest(ctx.ChatCompletionService.createRequestData({
+            messages, model, max_tokens: maxTokens, temperature, stream: false, chat_completion_source: 'openrouter',
+            ...(noReasoning ? { include_reasoning: false } : {}), ...(effort ? { reasoning_effort: effort } : {}),
+        }), true, signal);
+        try {
+            const res = await withLadder(send, noReasoning ? EFFORT_LADDER : ['']);
+            return String(res?.content ?? '');
+        } catch (error) {
+            throw friendlyOpenRouterError(error);
+        }
+    }
+
     if (ctx.mainApi === 'openai' && ctx.ChatCompletionService?.presetToGeneratePayload) {
         // A cloned settings object with overrides: ST maps reasoning_effort per provider (none/low/minimal).
         const preset = { temperature, ...(noReasoning ? { reasoning_effort: 'min', show_thoughts: false } : {}) };
-        const payload = await ctx.ChatCompletionService.presetToGeneratePayload(preset, {}, { messages, max_tokens: maxTokens, model: ctx.getChatCompletionModel(), stream: false });
+        const payload = await ctx.ChatCompletionService.presetToGeneratePayload(preset, {}, { messages, max_tokens: maxTokens, model: model || ctx.getChatCompletionModel(), stream: false });
         const res = await ctx.ChatCompletionService.sendRequest(payload, true, signal);
         return String(res?.content ?? '');
     }
