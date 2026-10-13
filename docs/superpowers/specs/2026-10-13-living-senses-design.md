@@ -41,7 +41,7 @@ The operator plays long text roleplay and has trouble keeping up with all the te
 - **Items**: type → icon + colour; small tooltip art-free.
 - **Places**: header strip rendered from place `type`, time slot and weather (CSS gradients/silhouettes/particles), crossfades on travel; weather particles (rain/snow/fog/embers) respect `prefers-reduced-motion` and a setting.
 - **Tier 1 generated art (opt-in, off by default)**: portraits for people without avatars on first meeting, place backdrop on first visit, item picture on click. Calls the Image Generation extension (`/imagine quiet=true`, returns a URL) from a single-file queue with a per-chat cap (default 12) and a visible "drawing…" state; prompts built only from *perceived* appearance tags (never `hidden`). URLs stored in `state.art[id]`; regenerate / remove per image; a "Test image generation" button in settings. Optional "use place art as chat background" (off by default; restores the user's background).
-- Honest limit: this operator's current SillyTavern image-generation settings look unconfigured (source `extras`, default URL), so Tier 1 ships dormant until the operator sets up a backend.
+- Honest limit: Tier 1 only works once an image-generation backend is set up in SillyTavern; until then it stays dormant and the free tier covers faces and places.
 
 ### 3. Hints
 - Settings: **Off / On request (default) / After every update**; tone: *gentle nudge* or *concrete options*.
