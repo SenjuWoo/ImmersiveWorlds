@@ -10,7 +10,7 @@ Updated 2026-10-13 · v2.3.0 · branch `main`
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
 
 ## Verified (2026-10-13, 2.3.0)
-- `node tests/selftest.js` 79/79 (IW) and 69/69 (Immersive Adventures after mirroring llm.js and models.js)
+- `node tests/selftest.js` 81/81 (IW) and 69/69 (Immersive Adventures after mirroring llm.js and models.js)
 - E2E in an isolated ST 1.19 (mock model on :5055): learned facts + toast, notes/removals survive swipe back and forth, Ideas filter drops unknown ids and a click fills the box without sending, model override reaches the connection (`my-local-model`), live OpenRouter list loads (463 models, DeepSeek V4.1 Flash first), OpenRouter call without a key gives the plain-language error, settings drawer, 375 px width (HUD steps aside, status strip stays)
 - Found and fixed in E2E: ST only reports "Bad Request"/"Response not OK" so the reasoning ladder now steps down on any plain rejection (not only ones naming reasoning); hidden settings rows needed a CSS rule
 

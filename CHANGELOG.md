@@ -9,7 +9,7 @@ Living senses I. Worlds from 2.2 load unchanged.
 - Faces for everyone: expression sprite, else avatar, else a coloured monogram (background people no longer have an empty slot).
 - Background model picker: current connection, a connection profile, or Pick a model: OpenRouter via a live searchable list with prices (DeepSeek V4.1 Flash in one click), or a model name on your current local/other connection. Reasoning is turned off with a fallback ladder (none, minimal, none given) and OpenRouter errors say what to fix.
 - Director learns a compact `learned` field (max 3 facts per person per update, never hidden facts); known facts are listed so they are not repeated.
-- Tests: 79.
+- Tests: 81.
 
 ## 2.2.0 — 2026-10-12
 
