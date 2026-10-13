@@ -496,6 +496,25 @@ body.iw-ambient[data-iw-weather="storm"]::before, body.iw-ambient[data-iw-weathe
 .imx-fact > small { opacity: .5; white-space: nowrap; }
 .imx-fact .menu_button { margin: 0; padding: 1px 8px; }
 
+/* Ideas */
+.iw-hud-ideas { margin-top: 12px; font-size: .9em; }
+.iw-hud-bulb, .iw-hud-ideas-list button {
+    font: inherit;
+    color: inherit;
+    text-shadow: none;
+    cursor: pointer;
+    border: 1px solid var(--SmartThemeBorderColor);
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 85%, transparent);
+    border-radius: 10px;
+}
+.iw-hud-bulb { padding: 2px 10px; }
+.iw-hud-bulb i { color: var(--SmartThemeQuoteColor); }
+.iw-hud-bulb:hover, .iw-hud-ideas-list button:hover { border-color: var(--SmartThemeQuoteColor); }
+.iw-hud-ideas-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
+.iw-hud-ideas-list li { line-height: 1.4; opacity: .9; }
+.iw-hud-ideas-list button { padding: 3px 10px; text-align: left; }
+.iw-hud-ideas .iw-hud-meta { margin-top: 6px; }
+
 /* Faces */
 .iw-hud-face.is-mono { font-size: 1.15em; letter-spacing: 0; background: hsl(var(--iw-hue, 30) 32% 34%); color: #fff; }
 .iw-hud-face.is-sprite { object-position: 50% 10%; background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 70%, transparent); }

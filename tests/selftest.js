@@ -6,6 +6,7 @@ import {
     cleanText, transcriptOf, timeSlot, advanceClock, currentLocation, presentNpcs, isOpen, slug,
 } from '../engine.js';
 import { parseJson, isRejection, errorText } from '../llm.js';
+import { hintBrief, hintPrompt, parseHints } from '../hints.js';
 import { monogram, pickSprite, spriteFolder } from '../faces.js';
 import { addLearned, normNotes, mergedFacts, hideFact, addNote, removeNote, factKey } from '../dossier.js';
 import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrateModelMode, RECOMMENDED } from '../models.js';
@@ -796,6 +797,49 @@ t('faces: pickSprite prefers the mood, then neutral, then anything', () => {
     assert.equal(pickSprite(null, 'joy'), '');
     assert.equal(spriteFolder('Fern.png'), 'Fern');
     assert.equal(spriteFolder(''), '');
+});
+
+function hintWorld() {
+    const s = world();
+    s.npcs.find(n => n.id === 'mara').hidden = 'she poisoned the well';
+    s.npcs.find(n => n.id === 'mara').secrets = ['owes the smugglers'];
+    s.npcs.find(n => n.id === 'mara').mind = { mood: 'wary?', wants: 'a quiet word?', toward: '' };
+    s.npcs.find(n => n.id === 'mara').appearance = 'scar across the left palm nobody has seen';
+    s.npcs.find(n => n.id === 'mara').tags = ['gutting fish'];
+    s.npcs.find(n => n.id === 'tom').nameKnown = false;
+    s.events = [{ id: 'smoke', name: 'Smoke on the hill', status: 'active', known: true }];
+    return applyPatch(s, { learned: [{ id: 'mara', k: 'like', t: 'Loves the smell of tar' }] });
+}
+
+t('hints: the brief is built from the perceived view and never leaks hidden truth', () => {
+    const s = hintWorld();
+    const view = perceive(s, 'senses');
+    const brief = hintBrief(view);
+    assert.ok(brief.includes('mara=Mara') && brief.includes('Loves the smell of tar') && brief.includes('gutting fish') && brief.includes('smoke=Smoke on the hill'));
+    for (const secret of ['poisoned', 'smugglers', 'scar across']) assert.ok(!brief.includes(secret), secret);
+    assert.ok(brief.length <= 1200);
+    const prompt = hintPrompt(view, 'options', 'Mara looks up.');
+    assert.ok(prompt.includes('first person') && prompt.includes('Never speak, think or decide for {{user}}'));
+    assert.ok(hintPrompt(view, 'nudge').includes('gentle nudge'));
+});
+
+t('hints: parse keeps ideas that rest on something known, clamps, dedupes, caps at four', () => {
+    const view = perceive(hintWorld(), 'senses');
+    const raw = '```json\n' + JSON.stringify({ hints: [
+        { text: 'I ask Mara about the harbour.', src: 'mara' },
+        { text: 'i ask mara about the harbour.', src: 'mara' },
+        { text: 'I follow the stranger to the temple.', src: 'ghost' },
+        { text: 'I pick up the key.', src: 'key' },
+        { text: 'x'.repeat(200), src: 'docks' },
+        { text: 'I look into the smoke.', src: 'smoke' },
+        { text: 'I do one more thing.', src: 'mara' },
+        null,
+    ] }) + '\n```';
+    const hints = parseHints(raw, view);
+    assert.deepEqual(hints.map(h => h.src), ['mara', 'key', 'docks', 'smoke']);
+    assert.equal(hints[2].text.length, 90);
+    assert.deepEqual(parseHints('not json at all', view), []);
+    assert.deepEqual(parseHints('{"hints":"nope"}', view), []);
 });
 
 let failed = 0;

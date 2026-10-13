@@ -26,10 +26,50 @@
                 </select>
             </div>
 
+            <h4 class="imx-h">Ideas</h4>
+            <div class="imx-grid-2">
+                <div class="imx-field">
+                    <label for="iw-hints">Ideas button <small>(what could I do next?)</small></label>
+                    <select id="iw-hints" class="text_pole" data-iw-setting="hints">
+                        <option value="request">On request</option><option value="auto">After every update</option><option value="off">Off</option>
+                    </select>
+                </div>
+                <div class="imx-field">
+                    <label for="iw-hint-tone">Style</label>
+                    <select id="iw-hint-tone" class="text_pole" data-iw-setting="hintTone">
+                        <option value="options">Actions I can click</option><option value="nudge">Gentle nudges</option>
+                    </select>
+                </div>
+            </div>
+
             <h4 class="imx-h">Director</h4>
-            <div class="imx-field" id="iw-profile-row">
-                <label for="iw-profile">Connection profile <small>(empty = current connection; a fast cheap model is ideal)</small></label>
+            <div class="imx-field">
+                <label for="iw-model-mode">Background model <small>(a fast, cheap one is ideal)</small></label>
+                <select id="iw-model-mode" class="text_pole" data-iw-setting="modelMode">
+                    <option value="current">Current connection</option><option value="profile">A connection profile</option><option value="model">Pick a model</option>
+                </select>
+            </div>
+            <div class="imx-field" id="iw-profile-row" data-iw-when="profile">
+                <label for="iw-profile">Connection profile</label>
                 <select id="iw-profile" class="text_pole"></select>
+            </div>
+            <div data-iw-when="model" hidden>
+                <div class="imx-field">
+                    <label for="iw-model-source">Send it to</label>
+                    <select id="iw-model-source" class="text_pole" data-iw-setting="modelSource">
+                        <option value="openrouter">OpenRouter (uses the OpenRouter key saved in SillyTavern)</option>
+                        <option value="current">The current connection (local or other: type its model name)</option>
+                    </select>
+                </div>
+                <div class="imx-field">
+                    <label for="iw-model-id">Model <small id="iw-model-note"></small></label>
+                    <input id="iw-model-id" class="text_pole" list="iw-model-list" placeholder="deepseek/deepseek-v4.1-flash" autocomplete="off" data-iw-setting="modelId">
+                    <datalist id="iw-model-list"></datalist>
+                </div>
+                <div class="flex-container flexGap5">
+                    <div id="iw-model-recommend" class="menu_button menu_button_icon" title="Cheap, fast, 1M context"><i class="fa-solid fa-bolt"></i><span>DeepSeek V4.1 Flash</span></div>
+                    <div id="iw-model-refresh" class="menu_button menu_button_icon"><i class="fa-solid fa-rotate"></i><span>Refresh list</span></div>
+                </div>
             </div>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="noReasoning"><span>Skip model reasoning for world updates (faster, cheaper)</span></label>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="suspendDirectorOnApiError"><span>Pause the director if the API rejects its request</span></label>

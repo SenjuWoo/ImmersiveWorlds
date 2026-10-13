@@ -25,6 +25,7 @@ let pinned = '';
 let openItem = '';
 let openNode = '';
 let lastTick = null;
+let ideas = { mode: 'off', tone: 'options', items: [], asked: false, loading: false };
 const lastSounds = new Map();
 let toastTimer = 0;
 const observers = [];
@@ -65,8 +66,9 @@ export function unmountHud() {
 export const sideVisible = side => Boolean(root && !root.hidden && root.dataset[side] && root.dataset[side] !== 'hidden');
 
 /** Draw a view, or hide the HUD with `null`. `quiet` suppresses toasts (chat just opened). */
-export function renderHud(next, { quiet = false } = {}) {
+export function renderHud(next, { quiet = false, ideas: nextIdeas } = {}) {
     if (!root) return;
+    if (nextIdeas) ideas = nextIdeas;
     const fresh = view === null || quiet;
     view = next;
     root.hidden = !view;
@@ -110,7 +112,16 @@ function sceneHtml(s) {
         <div class="iw-hud-place" data-iw-hud="panel" title="Open the Living World panel">${esc(s.place)}</div>
         <div class="iw-hud-when">${esc(s.when)}</div>
         <div class="iw-hud-now ${s.now ? '' : 'is-ambient'}">${esc(s.now || s.atmosphere)}</div>
-        ${s.threads.length ? `<div class="iw-hud-threads"><span>Stirring</span> · ${s.threads.map(esc).join(' · ')}</div>` : ''}`;
+        ${s.threads.length ? `<div class="iw-hud-threads"><span>Stirring</span> · ${s.threads.map(esc).join(' · ')}</div>` : ''}${ideasHtml()}`;
+}
+
+function ideasHtml() {
+    if (ideas.mode === 'off') return '';
+    const asClick = ideas.tone === 'options';
+    const list = ideas.loading ? '<div class="iw-hud-meta">Thinking…</div>'
+        : ideas.items.length ? `<ul class="iw-hud-ideas-list">${ideas.items.map((h, i) => `<li>${asClick ? `<button type="button" data-iw-use="${i}" title="Put this in your message box">${esc(h.text)}</button>` : esc(h.text)}</li>`).join('')}</ul>`
+            : ideas.asked ? '<div class="iw-hud-meta">Nothing new comes to mind.</div>' : '';
+    return `<div class="iw-hud-ideas"><button type="button" class="iw-hud-bulb" data-iw-hint title="What could I do next?"><i class="fa-solid fa-lightbulb"></i> Ideas</button>${list}</div>`;
 }
 
 // Expression sprite, else avatar, else a monogram in the person's own colour: everyone gets a face.
@@ -197,6 +208,9 @@ function onClick(e) {
     const t = e.target;
     const go = t.closest('[data-iw-go]');
     if (go) { openNode = ''; return handlers.onGo?.(go.dataset.iwGo); }
+    if (t.closest('[data-iw-hint]')) return handlers.onHint?.();
+    const use = t.closest('[data-iw-use]');
+    if (use) return handlers.onUseHint?.(ideas.items[Number(use.dataset.iwUse)]?.text ?? '');
     const dos = t.closest('[data-iw-dossier]');
     if (dos) return handlers.onDossier?.(dos.dataset.iwDossier);
     const pk = t.closest('[data-iw-peek]');

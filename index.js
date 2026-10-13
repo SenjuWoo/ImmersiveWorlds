@@ -12,6 +12,8 @@ import { backgroundGenerate, parseJson, errorText, isRejection } from './llm.js'
 import { escapeHtml, openPanel, paintPanel, isPanelOpen, statusSlot, addWandItem, empty } from './kit.js';
 import { perceive, markPerceived, peek, withArticle, labelOf, REVEAL } from './senses.js';
 import { mountHud, renderHud, sideVisible, KIND_ICON } from './hud.js';
+import { HINT_SYSTEM, hintPrompt, parseHints } from './hints.js';
+import { migrateModelMode, fetchModels, modelOptions } from './models.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
@@ -46,6 +48,11 @@ const DEFAULTS = Object.freeze({
     ambientEffects: true,
     hud: true,
     spriteFaces: true,
+    modelMode: 'current',
+    modelSource: 'openrouter',
+    modelId: '',
+    hints: 'request',
+    hintTone: 'options',
     hudReveal: 'senses',
     suspendDirectorOnApiError: true,
     debug: false,
@@ -73,10 +80,21 @@ const log = (...args) => settings().debug && console.debug(`[${TITLE}]`, ...args
 function settings() {
     const all = ctx().extensionSettings;
     const s = all[MODULE_ID] ??= {};
+    if (s.modelMode === undefined) s.modelMode = migrateModelMode(s); // 2.2 had only a profile
     for (const [from, to] of Object.entries(RENAMED)) if (from in s) { s[to] ??= s[from]; delete s[from]; }
     for (const [k, v] of Object.entries(DEFAULTS)) if (s[k] === undefined) s[k] = v;
     for (const k of Object.keys(s)) if (!(k in DEFAULTS)) delete s[k];
     return s;
+}
+
+/** Where background calls go: a profile, an explicit model, or the current connection. */
+function backgroundOpts() {
+    const s = settings();
+    const mode = migrateModelMode(s);
+    const model = String(s.modelId ?? '').trim();
+    if (mode === 'profile' && s.profileId) return { profileId: s.profileId };
+    if (mode === 'model' && model) return { model, viaOpenRouter: s.modelSource === 'openrouter' };
+    return {};
 }
 
 function policy() {
@@ -92,6 +110,46 @@ function policy() {
 // ---------------------------------------------------------------------------
 
 const getState = () => ctx().chatMetadata?.[STATE_KEY] || null;
+
+// Ideas (hints): never persisted, valid for the world turn they were asked on.
+let hintCache = null;
+let hintBusy = false;
+
+function currentIdeas() {
+    const s = settings();
+    const state = getState();
+    const live = Boolean(hintCache && state && hintCache.chatId === ctx().getCurrentChatId() && hintCache.tick === state.meta.tick);
+    return { mode: s.hints, tone: s.hintTone, items: live ? hintCache.items : [], asked: live, loading: hintBusy };
+}
+
+async function requestHints() {
+    const s = settings();
+    const state = getState();
+    if (!state || s.hints === 'off' || hintBusy) return [];
+    const mode = REVEAL.includes(s.hudReveal) ? s.hudReveal : 'senses';
+    const view = perceive(state, mode, { userName: ctx().name1, notes: getNotes() });
+    const last = ctx().chat?.findLast(m => !m.is_system)?.mes ?? '';
+    const chatId = ctx().getCurrentChatId();
+    const myEpoch = epoch;
+    const tick = state.meta.tick;
+    hintBusy = true;
+    paintHud(true);
+    try {
+        const raw = await backgroundGenerate({ system: HINT_SYSTEM, prompt: ctx().substituteParams(hintPrompt(view, s.hintTone, last)), maxTokens: 300, temperature: 0.8, noReasoning: s.noReasoning, ...backgroundOpts() });
+        if (myEpoch !== epoch || ctx().getCurrentChatId() !== chatId) return [];
+        hintCache = { chatId, tick, items: parseHints(raw, view) };
+        log('ideas', hintCache.items);
+        if (!hintCache.items.length || !sideVisible('left')) toastr.info(hintCache.items.map(h => h.text).join('\n') || 'Nothing new comes to mind.', 'Ideas');
+        return hintCache.items;
+    } catch (error) {
+        console.warn(`[${TITLE}] ideas failed`, error);
+        toastr.warning(`Ideas skipped: ${errorText(error).slice(0, 160)}`, TITLE);
+        return [];
+    } finally {
+        hintBusy = false;
+        paintHud(true);
+    }
+}
 
 // What the user wrote or removed in dossiers: its own key, so swipes and deletes never rewind it.
 const getNotes = () => { const md = ctx().chatMetadata; return md ? (md[NOTES_KEY] ??= normNotes(null)) : normNotes(null); };
@@ -246,7 +304,7 @@ async function runDirector(index, { manual = false } = {}) {
     try {
         const prompt = c.substituteParams(directorPrompt(state, transcript, policy(), sheetsFor(state)));
         log('director prompt', prompt.length, 'chars');
-        const raw = await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.directorTokens, 400, 8192), profileId: s.profileId, temperature: s.temperature, noReasoning: s.noReasoning });
+        const raw = await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.directorTokens, 400, 8192), ...backgroundOpts(), temperature: s.temperature, noReasoning: s.noReasoning });
         const patch = parseJson(raw);
         if (myEpoch !== epoch || ctx().getCurrentChatId() !== chatId || !getState()) return log('director result dropped: chat moved on');
         const next = applyPatch(getState(), patch, policy());
@@ -260,6 +318,7 @@ async function runDirector(index, { manual = false } = {}) {
             ctx().saveChat?.();
         }
         log('director patch', patch);
+        if (settings().hints === 'auto') queueMicrotask(() => requestHints());
         if (next.meta.rejected.length) log('rejected by world rules', next.meta.rejected);
         setState(next);
         inject();
@@ -269,7 +328,7 @@ async function runDirector(index, { manual = false } = {}) {
             s.autoDirector = false;
             ctx().saveSettingsDebounced();
             syncSettingsUi();
-            toastr.error('The API rejected the background world update, so automatic updates are paused. Pick a connection profile in the settings, then turn them back on.', TITLE);
+            toastr.error('The API rejected the background world update, so automatic updates are paused. Pick another background model in the settings, then turn them back on.', TITLE);
         } else {
             toastr.warning(`World update skipped: ${errorText(error).slice(0, 180)}`, TITLE);
         }
@@ -338,7 +397,7 @@ async function buildWorld() {
     try {
         const chat = c.chat || [];
         const prompt = c.substituteParams(bootstrapPrompt(lore(), transcriptOf(chat, chat.length - 6, chat.length - 1, { maxChars: 700 })));
-        const raw = await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.bootstrapTokens, 1500, 8192), profileId: s.profileId, temperature: Math.max(0.6, Number(s.temperature) || 0), noReasoning: s.noReasoning });
+        const raw = await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.bootstrapTokens, 1500, 8192), ...backgroundOpts(), temperature: Math.max(0.6, Number(s.temperature) || 0), noReasoning: s.noReasoning });
         const generated = parseJson(raw);
         if (ctx().getCurrentChatId() !== chatId) return;
         const state = normalizeState({ ...baseWorld(cardInfo()), ...generated, chronicle: [{ at: nowIso(), text: 'The living world took shape.' }], meta: { bootstrapped: true, lastIndex: chat.length - 1 } });
@@ -423,7 +482,7 @@ function paintHud(quiet = false) {
     const s = settings();
     const state = getState();
     const mode = REVEAL.includes(s.hudReveal) ? s.hudReveal : 'senses';
-    renderHud(s.enabled && s.hud && state ? perceive(state, mode, { userName: ctx().name1, notes: getNotes() }) : null, { quiet });
+    renderHud(s.enabled && s.hud && state ? perceive(state, mode, { userName: ctx().name1, notes: getNotes() }) : null, { quiet, ideas: currentIdeas() });
 }
 
 function avatarUrl(person) {
@@ -698,7 +757,7 @@ Invent ${n} new person(s) who belong in this world${v.concept ? `, matching: ${v
 Return {"npcs":[{"id","name","role","appearance","personality","goals":[],"secrets":[],"inventory":[],"relationship","locationId","status","routine":{"dawn","day","dusk","night"}}]}`);
     setBusy(true, 'Forging people…');
     try {
-        const patch = parseJson(await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.directorTokens, 400, 8192), profileId: s.profileId, temperature: Math.max(0.8, Number(s.temperature) || 0), noReasoning: s.noReasoning }));
+        const patch = parseJson(await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.directorTokens, 400, 8192), ...backgroundOpts(), temperature: Math.max(0.8, Number(s.temperature) || 0), noReasoning: s.noReasoning }));
         const people = (Array.isArray(patch?.npcs) ? patch.npcs : []).filter(p => p?.name).slice(0, 4).map(p => ({ ...p, id: uniqueId(getState().npcs, p.name, 'npc') }));
         if (!people.length) throw new Error('The model returned nobody usable.');
         const next = applyPatch(getState(), { npcs: people, chronicle: people.map(p => `${p.name} joined the cast.`) }, { ...policy(), allowNewCharacters: true });
@@ -851,6 +910,7 @@ function syncSettingsUi() {
         if (el.type === 'checkbox') el.checked = Boolean(v);
         else el.value = String(v);
     }
+    for (const el of document.querySelectorAll('[data-iw-when]')) el.hidden = el.dataset.iwWhen !== s.modelMode;
 }
 
 function onSettingChange(el) {
@@ -861,6 +921,7 @@ function onSettingChange(el) {
     syncSettingsUi();
     inject();
     refresh();
+    if (['modelMode', 'modelSource'].includes(key)) loadModelList();
 }
 
 function bindUi() {
@@ -876,10 +937,35 @@ function bindUi() {
     });
 }
 
+let modelCache = { at: 0, list: [] };
+
+/** Fill the model suggestions from OpenRouter's public list. Typing any id always works. */
+async function loadModelList(force = false) {
+    const s = settings();
+    const list = document.getElementById('iw-model-list');
+    const note = document.getElementById('iw-model-note');
+    if (!list || !note || s.modelMode !== 'model' || s.modelSource !== 'openrouter') return;
+    try {
+        if (force || !modelCache.list.length || Date.now() - modelCache.at > 30 * 60e3) modelCache = { at: Date.now(), list: await fetchModels() };
+        list.innerHTML = modelOptions(modelCache.list, '', 400).map(m => `<option value="${escapeHtml(m.id)}" label="${escapeHtml(`${m.name} — $${m.inPerM}/$${m.outPerM} per M · ${Math.round(m.ctx / 1000)}k`)}"></option>`).join('');
+        note.textContent = `(${modelCache.list.length} models)`;
+    } catch (error) {
+        log('model list', error);
+        note.textContent = '(list unavailable: type the model id)';
+    }
+}
+
 async function mountSettings() {
     const html = await ctx().renderExtensionTemplateAsync(`third-party/${FOLDER}`, 'settings');
     (document.getElementById('extensions_settings2') || document.getElementById('extensions_settings'))?.insertAdjacentHTML('beforeend', html);
     document.getElementById('iw-open-panel')?.addEventListener('click', () => openWorldPanel());
+    document.getElementById('iw-model-recommend')?.addEventListener('click', () => {
+        Object.assign(settings(), { modelMode: 'model', modelSource: 'openrouter', modelId: 'deepseek/deepseek-v4.1-flash' });
+        ctx().saveSettingsDebounced();
+        syncSettingsUi();
+        loadModelList();
+    });
+    document.getElementById('iw-model-refresh')?.addEventListener('click', () => loadModelList(true));
     try {
         ctx().ConnectionManagerRequestService.handleDropdown('#iw-profile', settings().profileId, profile => {
             settings().profileId = profile?.id ?? '';
@@ -889,6 +975,7 @@ async function mountSettings() {
         document.getElementById('iw-profile-row')?.remove();
     }
     syncSettingsUi();
+    loadModelList();
 }
 
 function registerCommands() {
@@ -896,7 +983,7 @@ function registerCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'iw',
         returns: 'the current scene brief',
-        unnamedArgumentList: [SlashCommandArgument.fromProps({ description: 'open | start | build | update | travel <place> | brief', typeList: [ARGUMENT_TYPE.STRING], isRequired: false })],
+        unnamedArgumentList: [SlashCommandArgument.fromProps({ description: 'open | start | build | update | travel <place> | ideas | brief', typeList: [ARGUMENT_TYPE.STRING], isRequired: false })],
         helpString: 'Immersive Worlds. <code>/iw</code> opens the panel; <code>/iw start</code>, <code>/iw build</code>, <code>/iw update</code>, <code>/iw travel Market</code>, <code>/iw brief</code> (returns the scene brief).',
         callback: async (_args, value) => {
             const [cmd, ...rest] = String(value ?? '').trim().split(/\s+/);
@@ -906,6 +993,7 @@ function registerCommands() {
                 case 'build': await buildWorld(); break;
                 case 'update': await onAction('pass', {}); break;
                 case 'travel': return travelTo(arg) || `No known place "${arg}" next to here.`;
+                case 'ideas': return (await requestHints()).map(h => h.text).join('\n');
                 case 'brief': break;
                 default: openWorldPanel();
             }
@@ -947,8 +1035,9 @@ export async function init() {
     settings();
     await mountSettings();
     bindUi();
-    mountHud({ onGo: goTo, onPeek: peekInto, onDossier: openDossier, spriteUrl, onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
+    mountHud({ onGo: goTo, onPeek: peekInto, onDossier: openDossier, spriteUrl, onHint: requestHints, onUseHint: text => text && prefillAction(text.startsWith('*') ? text : `*${text}*`), onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
     addWandItem({ id: 'iw-wand', icon: 'fa-compass', label: 'Living World', onClick: () => openWorldPanel() });
+    addWandItem({ id: 'iw-ideas', icon: 'fa-lightbulb', label: 'Ideas: what could I do?', onClick: () => requestHints() });
     registerCommands();
     registerMacros();
     c.eventSource.on(c.eventTypes.CHAT_CHANGED, onChatChanged);
