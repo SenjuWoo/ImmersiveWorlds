@@ -14,7 +14,17 @@
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="autoDirector"><span>Update the world after each reply (background director)</span></label>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="strictUserAgency"><span>Never write the user's words, thoughts or choices</span></label>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="showStatus"><span>Show time and place above the chat input</span></label>
-            <label class="checkbox_label"><input type="checkbox" data-iw-setting="ambientEffects"><span>Tint the screen by time of day</span></label>
+            <div class="imx-field">
+                <label for="iw-backdrop">Scene backdrop</label>
+                <select id="iw-backdrop-mode" class="text_pole" data-iw-setting="backdrop">
+                    <option value="off">Off (my own background, untouched)</option>
+                    <option value="tint">Time-of-day and weather grade only</option>
+                    <option value="scene">Painted scene for the place you are in</option>
+                    <option value="art" disabled>Generated picture (needs Image Generation, coming in 2.4.1)</option>
+                </select>
+                <small class="imx-note">Draws in its own layer above your chat background, so switching it off brings your background straight back.</small>
+            </div>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="particles"><span>Weather particles (rain, snow, fog, dust)</span></label>
 
             <h4 class="imx-h">HUD</h4>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="hud"><span>Show the HUD in the space beside the chat (scene, people, items, map)</span></label>

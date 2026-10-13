@@ -10,7 +10,8 @@ import { hintBrief, hintPrompt, parseHints } from '../hints.js';
 import { monogram, pickSprite, spriteFolder } from '../faces.js';
 import { addLearned, normNotes, mergedFacts, hideFact, addNote, removeNote, factKey } from '../dossier.js';
 import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrateModelMode, RECOMMENDED } from '../models.js';
-import { placeKind, artSlot, skyOf, particleSpec } from '../scenery.js';
+import { placeKind, artSlot, skyOf, particleSpec, PLACE_KINDS } from '../scenery.js';
+import { migrateBackdrop, silhouetteSvg } from '../backdrop.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
 
@@ -903,6 +904,27 @@ t('scenery: particleSpec follows the weather and respects reduced motion', () =>
     assert.equal(particleSpec('misty', 'dawn').kind, 'fog');
     assert.equal(particleSpec('hot', 'day').kind, 'dust');
     assert.deepEqual(particleSpec('snow', 'day', true), { kind: null, count: 0 });
+});
+
+t('backdrop: the old tint checkbox migrates to the new mode, an existing mode wins', () => {
+    assert.equal(migrateBackdrop({ ambientEffects: false }), 'off');
+    assert.equal(migrateBackdrop({ ambientEffects: true }), 'tint');
+    assert.equal(migrateBackdrop({}), 'tint');
+    assert.equal(migrateBackdrop({ backdrop: 'scene', ambientEffects: false }), 'scene');
+    assert.equal(migrateBackdrop({ backdrop: 'bogus' }), 'tint', 'an unknown mode falls back');
+});
+
+t('backdrop: every place kind has a silhouette and unknown kinds fall back', () => {
+    for (const k of PLACE_KINDS) assert.match(silhouetteSvg(k), /^<svg[\s\S]*<\/svg>$/, k);
+    assert.equal(silhouetteSvg('bogus'), silhouetteSvg('default'));
+    for (const k of PLACE_KINDS) assert.ok(silhouetteSvg(k).length <= 1100, `${k} stays small`);
+});
+
+t('backdrop: the settings screen offers the backdrop mode instead of the old tint checkbox', () => {
+    const html = readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+    assert.ok(html.includes('data-iw-setting="backdrop"'));
+    assert.ok(html.includes('data-iw-setting="particles"'));
+    assert.ok(!html.includes('data-iw-setting="ambientEffects"'));
 });
 
 let failed = 0;

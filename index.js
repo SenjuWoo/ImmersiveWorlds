@@ -14,6 +14,8 @@ import { perceive, markPerceived, peek, withArticle, labelOf, REVEAL } from './s
 import { mountHud, renderHud, sideVisible, KIND_ICON } from './hud.js';
 import { HINT_SYSTEM, hintPrompt, parseHints } from './hints.js';
 import { migrateModelMode, fetchModels, modelOptions } from './models.js';
+import { placeKind } from './scenery.js';
+import { mountBackdrop, paintBackdrop, migrateBackdrop } from './backdrop.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
@@ -45,7 +47,8 @@ const DEFAULTS = Object.freeze({
     maxItems: 80,
     maxLocations: 36,
     showStatus: true,
-    ambientEffects: true,
+    backdrop: 'tint',
+    particles: true,
     hud: true,
     spriteFaces: true,
     modelMode: 'current',
@@ -81,6 +84,7 @@ function settings() {
     const all = ctx().extensionSettings;
     const s = all[MODULE_ID] ??= {};
     if (s.modelMode === undefined) s.modelMode = migrateModelMode(s); // 2.2 had only a profile
+    if (s.backdrop === undefined) s.backdrop = migrateBackdrop(s); // 2.3 had a tint checkbox
     for (const [from, to] of Object.entries(RENAMED)) if (from in s) { s[to] ??= s[from]; delete s[from]; }
     for (const [k, v] of Object.entries(DEFAULTS)) if (s[k] === undefined) s[k] = v;
     for (const k of Object.keys(s)) if (!(k in DEFAULTS)) delete s[k];
@@ -514,15 +518,14 @@ function paintStatus() {
         ${busyChip}`;
 }
 
+// Time, weather and place on screen: the grade and (optionally) a painted scene, in our own layer.
 function applyAmbient() {
     const s = settings();
     const state = getState();
-    const on = Boolean(s.enabled && s.ambientEffects && state);
-    document.body.classList.toggle('iw-ambient', on);
-    if (on) {
-        document.body.dataset.iwTime = timeSlot(state);
-        document.body.dataset.iwWeather = weatherClass(state);
-    }
+    const on = Boolean(s.enabled && state && s.backdrop !== 'off');
+    if (!on) return paintBackdrop({ mode: 'off' });
+    const loc = currentLocation(state);
+    paintBackdrop({ mode: s.backdrop, kind: placeKind(loc.type, loc.name), slot: timeSlot(state), weather: weatherClass(state) });
 }
 
 function openWorldPanel(tab = activeTab) {
@@ -651,7 +654,7 @@ function manageTab(state) {
             ${sectionLabel('Quick toggles')}
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="autoDirector" ${s.autoDirector ? 'checked' : ''}><span>Update after each reply</span></label>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="hud" ${s.hud ? 'checked' : ''}><span>Show the HUD beside the chat</span></label>
-            <label class="checkbox_label"><input type="checkbox" data-iw-setting="ambientEffects" ${s.ambientEffects ? 'checked' : ''}><span>Time-of-day tint</span></label>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="particles" ${s.particles ? 'checked' : ''}><span>Weather particles</span></label>
             <span class="imx-meta">All settings: Extensions → Immersive Worlds. Turn ${state.meta.tick} · v${VERSION}</span>
         </section>`;
 }
@@ -1035,6 +1038,7 @@ export async function init() {
     const c = ctx();
     settings();
     await mountSettings();
+    mountBackdrop();
     bindUi();
     mountHud({ onGo: goTo, onPeek: peekInto, onDossier: openDossier, spriteUrl, onHint: () => requestHints(), onUseHint: text => text && prefillAction(text.startsWith('*') ? text : `*${text}*`), onOpenPanel: () => openWorldPanel('world'), avatarUrl, describeItem: id => getState()?.items.find(i => i.id === id)?.description || '', onLayout: paintStatus });
     addWandItem({ id: 'iw-wand', icon: 'fa-compass', label: 'Living World', onClick: () => openWorldPanel() });
