@@ -4,6 +4,7 @@
   "type": "module",
   "description": "SillyTavern extension: a persistent living world per chat. Tests only; the extension itself has no dependencies and no build step.",
   "scripts": {
-    "test": "node tests/selftest.js"
+    "test": "node tests/selftest.js",
+    "lint": "node tests/lint.mjs"
   }
 }

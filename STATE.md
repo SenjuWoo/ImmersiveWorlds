@@ -10,7 +10,7 @@ Updated 2026-10-20 · v2.7.0 · branch `main`
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
 
 ## Verified (2026-10-20, 2.7.0)
-- `npm test` 126/126; `node --check` on every file
+- `npm run lint` 18/18 files parse; `npm test` 126/126
 - Schema v5: v2 and v3 states migrate silently, `bond` clamps to −5..5, absent means 0
 - Prompt: `"bond"` appears in the contract only when standing is on; the 3750-char budget still holds
 - Rumours: same room only, `history`/`bond`/`promise` only, never twice, one per room, seeded by the tick so a swipe reproduces it

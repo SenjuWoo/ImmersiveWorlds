@@ -181,7 +181,7 @@ art.js          pure: picture store, safe prompts, one-at-a-time queue (the imag
 kit.js          shared panel kit (identical in Immersive Adventures)
 settings.html   settings drawer
 style.css       shared kit block + backdrop + particles + HUD
-tests/          node tests/selftest.js
+tests/          node tests/selftest.js · npm run lint (parse gate)
 ```
 
 State lives in chat metadata key `immersive_worlds_state_v1`; your dossier notes and removals live in `immersive_worlds_notes_v1`. Worlds from 1.x, 2.0, 2.1 and 2.2 load unchanged.
