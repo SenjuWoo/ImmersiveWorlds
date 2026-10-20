@@ -335,6 +335,17 @@ button.imx-pill:hover, button.imx-pill:focus-visible { border-color: var(--Smart
 .iw-hud-person { display: flex; align-items: center; gap: 9px; cursor: pointer; border-radius: 26px; outline-offset: 3px; transition: opacity var(--animation-duration, .2s); }
 .iw-hud-who { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; }
 .iw-hud-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* Standing: a 3 px bar in the person card and a dot in the room list. Neutral is grey, never green. */
+.iw-hud-bond { height: 3px; border-radius: 2px; background: rgb(255 255 255 / .14); margin: 0 0 8px; overflow: hidden; }
+.iw-hud-bond > span { display: block; height: 100%; background: currentColor; }
+.iw-hud-bond.pos { color: #86c9a4; }
+.iw-hud-bond.neg { color: #d98b8b; }
+.iw-hud-line { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.iw-hud-dot { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: rgb(255 255 255 / .35); }
+.iw-hud-dot.pos { background: #86c9a4; }
+.iw-hud-dot.neg { background: #d98b8b; }
+.iw-hud-from { display: block; font-size: .85em; opacity: .6; margin-top: 2px; }
 .iw-hud-name small { font-weight: 400; opacity: .55; }
 .iw-hud-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 

@@ -16,7 +16,7 @@ import { makeParticles, stepParticles } from '../particles.js';
 import { BEDS, LAYERS, weatherSpec, placeSpec, audioSpec, isEnclosed, thunderDelay, nextStrike, specKey, clampVolume } from '../audio.js';
 import { normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue, isImagePath } from '../art.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
-import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
+import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint, spreadRumours } from '../rules.js';
 
 const tests = [];
 const t = (name, fn) => tests.push([name, fn]);
@@ -317,7 +317,7 @@ function island(s) {
 t('v2 world migrates to the current schema silently', () => {
     const v2 = { version: 2, worldName: 'Old', locations: [{ id: 'a', name: 'A', type: 'room', connections: ['b'] }, { id: 'b', name: 'B', type: 'room' }], currentLocationId: 'a', npcs: [{ id: 'x', name: 'X', locationId: 'b' }] };
     const s = normalizeState(v2);
-    assert.equal(s.version, 4);
+    assert.equal(s.version, 5);
     assert.deepEqual(s.locations[0].routes, { b: { minutes: 1, sense: 'door' } });
     assert.equal(s.locations[0].visited, true, 'the current place counts as visited');
     const x = s.npcs[0];
@@ -731,7 +731,7 @@ t('dossier: a patch records facts for known people only, reports fresh ones, nev
 
 t('dossier: v3 worlds load with empty dossiers; the narrator note never carries them', () => {
     const v3 = normalizeState({ version: 3, locations: [{ id: 'a', name: 'A' }], npcs: [{ id: 'x', name: 'X', locationId: 'a', main: true }] });
-    assert.equal(v3.version, 4);
+    assert.equal(v3.version, 5);
     assert.deepEqual(v3.npcs[0].learned, []);
     const s = world();
     const before = sceneBrief(s);
@@ -1261,7 +1261,7 @@ t('audio wiring: the host syncs on refresh, the settings offer it, and versions 
     assert.ok(index.includes('applyAudio(); // sound does not depend on the backdrop mode'), 'sound must not sit behind the backdrop mode');
     assert.ok(/audio: false/.test(index), 'sound is off by default');
     assert.ok(html.includes('id="iw-audio-test"') && html.includes('data-iw-setting="audio"'), 'settings expose the switch and the test');
-    assert.equal(manifest.version, '2.6.1');
+    assert.equal(manifest.version, '2.7.0');
 });
 
 t('audio: a place is a mix of the five textures, and every kind has one', () => {
@@ -1299,6 +1299,78 @@ t('audio: the world mixes its weather and its room', () => {
     assert.equal(spec.indoor, true, 'a tavern is under a roof');
     assert.ok(spec.events.length > 0);
     assert.notEqual(specKey(spec), specKey(audioSpec(world(), { volume: 1 })), 'two places are two keys');
+});
+
+t('schema v5: bond is a clamped number, and absent means unknown', () => {
+    const s = normalizeState({ ...world(), npcs: [{ id: 'mara', name: 'Mara', role: 'x', bond: 9 }, { id: 'tom', name: 'Tom', role: 'y', bond: -12 }] });
+    assert.equal(s.version, 5);
+    assert.equal(s.npcs[0].bond, 5, 'clamped high');
+    assert.equal(s.npcs[1].bond, -5, 'clamped low');
+    assert.equal(world().npcs[0].bond, 0, 'a stranger is 0, not a guess');
+});
+
+t('standing: the prompt only mentions bond when the feature is on', () => {
+    const s = world();
+    s.npcs[0].bond = -2;
+    const on = directorPrompt(s, '', { standing: true }, {});
+    const off = directorPrompt(s, '', { standing: false }, {});
+    assert.ok(on.includes('"bond"'), 'the contract asks for the field');
+    assert.ok(!off.includes('"bond"'), 'no contract field when off');
+});
+
+t('rumours: a fact you were told reaches someone in the same room', () => {
+    const s = world();
+    s.npcs[1].locationId = 'market';
+    s.npcs[0].learned = [{ k: 'history', t: 'Tom owes the guild money', at: '08:00' }];
+    const out = spreadRumours(s, { seed: 3 });
+    assert.equal(out.length, 1);
+    assert.equal(out[0].from, 'mara');
+    assert.equal(out[0].to, 'tom');
+    assert.equal(s.npcs[1].learned[0].via, 'mara', 'marked with who told them');
+});
+
+t('rumours: only things you were told travel, and never twice', () => {
+    const s = world();
+    s.npcs[1].locationId = 'market';
+    s.npcs[0].learned = [{ k: 'trait', t: 'has a scar' }, { k: 'like', t: 'likes eels' }];
+    assert.equal(spreadRumours(s, { seed: 1 }).length, 0, 'appearance and preferences are not gossip');
+    s.npcs[0].learned.push({ k: 'promise', t: 'promised to pay by winter' });
+    assert.equal(spreadRumours(s, { seed: 1 }).length, 1);
+    assert.equal(spreadRumours(s, { seed: 1 }).length, 0, 'nobody is told the same thing twice');
+});
+
+t('rumours: the same tick spreads the same gossip', () => {
+    const a = world(), b = world();
+    for (const s of [a, b]) {
+        s.npcs[0].learned = [{ k: 'bond', t: 'sworn to the old duke' }];
+        s.npcs[0].locationId = 'market'; s.npcs[1].locationId = 'market';
+    }
+    assert.deepEqual(spreadRumours(a, { seed: 7 }), spreadRumours(b, { seed: 7 }), 'a swipe must rewind, not re-roll');
+});
+
+t('rumours: a room with one person says nothing', () => {
+    const s = world();
+    s.npcs[0].learned = [{ k: 'history', t: 'something worth telling' }];
+    assert.equal(spreadRumours(s, { seed: 1 }).length, 0);
+});
+
+t('senses: standing and who told you', () => {
+    const s = world();
+    s.npcs[0].bond = 3;
+    s.npcs[0].learned = [{ k: 'history', t: 'the ferry sank', at: '08:00', via: 'tom' }];
+    const on = perceive(s, 'senses', { standing: true });
+    const off = perceive(s, 'senses', { standing: false });
+    assert.equal(on.people.find(p => p.id === 'mara').bond, 3);
+    assert.equal(off.people.find(p => p.id === 'mara').bond, undefined);
+    assert.equal(on.people.find(p => p.id === 'mara').learned[0].from, 'Old Tom');
+});
+
+t('people features are switchable in the panel', () => {
+    const html = readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+    const src = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+    assert.ok(html.includes('data-iw-setting="standing"'), 'standing has a switch');
+    assert.ok(html.includes('data-iw-setting="rumours"'), 'rumours has a switch');
+    assert.ok(src.includes('standing: true') && src.includes('rumours: true'), 'both default on');
 });
 
 let failed = 0;

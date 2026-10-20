@@ -14,7 +14,7 @@ const sameText = t => String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').t
 export function normLearned(list) {
     return (Array.isArray(list) ? list : []).map(x => (typeof x === 'string' ? { t: x } : x))
         .filter(x => x && typeof x === 'object' && clip(x.t, 120))
-        .map(x => ({ k: KINDS.includes(x.k) ? x.k : 'other', t: clip(x.t, 120), at: clip(x.at, 20) }));
+        .map(x => ({ k: KINDS.includes(x.k) ? x.k : 'other', t: clip(x.t, 120), at: clip(x.at, 20), ...(x.via ? { via: clip(x.via, 60) } : {}) }));
 }
 
 /** Add up to three new facts to a person. Returns the facts actually added (duplicates and overflow skipped). */

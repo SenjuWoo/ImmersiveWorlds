@@ -1,5 +1,6 @@
 // World logic the model cannot overrule: routes with travel time and openness, paths, time caps, people in transit.
 // Pure: no SillyTavern imports, no engine imports (engine imports this).
+import { CAPS } from './dossier.js';
 
 export const SENSES = ['open', 'door', 'none'];
 export const JUMPS = ['sleep', 'wait', 'travel', 'montage'];
@@ -128,4 +129,57 @@ export function movementHint(state, text) {
         const name = String(l.name || '').replace(/^the\s+/i, '').trim();
         return name.length >= 3 && new RegExp(`\\b${escapeRe(name)}\\b`, 'i').test(t);
     });
+}
+
+// ---------------------------------------------------------------------------
+// Rumours: what one person was told can reach another in the same room.
+// ---------------------------------------------------------------------------
+
+/** Small seeded PRNG (mulberry32): the same tick spreads the same gossip, so a swipe rewinds it exactly. */
+function prng(seed) {
+    let a = (Number(seed) || 0) >>> 0;
+    return () => {
+        a = (a + 0x6d2b79f5) >>> 0;
+        let t = a;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// Things you are told, not things you see by looking. `trait` and `like` never travel.
+const RUMOURABLE = new Set(['history', 'bond', 'promise']);
+const sameFact = t => String(t ?? '').trim().toLowerCase();
+
+/**
+ * Pass facts between people who share a room: at most one per place per tick, `maxPerTick` in the world,
+ * never a `hidden` truth. The listener records `via`, so the panel can say "heard from Marta" instead of
+ * pretending {{user}} witnessed it. Returns the spreads, for tests and the debug log.
+ */
+export function spreadRumours(state, { seed = state?.meta?.tick ?? 0, maxPerTick = 3 } = {}) {
+    const out = [];
+    const rand = prng(seed);
+    const rooms = new Map();
+    for (const n of state?.npcs ?? []) {
+        if (!n.known || n.travel || !['active', 'present', ''].includes(String(n.status ?? ''))) continue;
+        const list = rooms.get(n.locationId) ?? [];
+        list.push(n);
+        rooms.set(n.locationId, list);
+    }
+    for (const [, people] of rooms) {
+        if (out.length >= maxPerTick) break;
+        if (people.length < 2) continue;
+        // Offer what the room knows, then pick a fact and its teller: the gossip decides who speaks,
+        // not a coin toss that lands on the one person with nothing to say.
+        const offers = people.flatMap(p => (p.learned ?? []).filter(f => RUMOURABLE.has(f.k)).map(f => ({ teller: p, f })));
+        if (!offers.length) continue;
+        const { teller, f: fact } = offers[Math.floor(rand() * offers.length)];
+        const others = people.filter(p => p !== teller);
+        const listener = others[Math.floor(rand() * others.length)];
+        if ((listener.learned ?? []).some(f => sameFact(f.t) === sameFact(fact.t))) continue;
+        const cap = listener.main ? CAPS.main : CAPS.bg;
+        listener.learned = [...(listener.learned ?? []), { k: fact.k, t: fact.t, at: state?.clock?.time ?? '', via: teller.id }].slice(-cap);
+        out.push({ from: teller.id, to: listener.id, t: fact.t });
+    }
+    return out;
 }

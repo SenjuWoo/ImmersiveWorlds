@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.7.0 — 2026-10-20
+
+People who remember and talk. Schema v5.
+
+- **Standing**: every main person carries a `bond` from −5 to +5, written by the director in the patch it already sends. Shown as a bar in the person card and a 3 px dot in the room list. With the switch off the field never enters the prompt, so the request is byte-identical to 2.6.1.
+- **Rumours**: people who share a room pass on what they were told — `history`, `bond` and `promise`, never `trait`, `like` or anything hidden. At most one fact per room per tick and three in the world. The card says *heard from Marta*, so second-hand never looks like witnessed.
+- Both have their own switch under **People**.
+- Deterministic: the spread is seeded by the tick, so a swipe re-applies the same gossip instead of rolling again.
+- Tests: 126.
+
 ## 2.6.1 — 2026-10-19
 
 Places you can hear. 2.6.0 gave the weather a voice; this gives the room one. Still no sound files.

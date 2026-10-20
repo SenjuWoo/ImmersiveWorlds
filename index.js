@@ -7,7 +7,7 @@ import {
     directorPrompt, bootstrapPrompt, applyPatch, travel, transcriptOf, cleanText, slug, uniqueId, nowIso, isOpen, timeSlot,
     atmosphereLine, weatherIcon, weatherClass,
 } from './engine.js';
-import { movementHint } from './rules.js';
+import { movementHint, spreadRumours } from './rules.js';
 import { backgroundGenerate, parseJson, errorText, isRejection } from './llm.js';
 import { escapeHtml, openPanel, paintPanel, isPanelOpen, statusSlot, addWandItem, empty } from './kit.js';
 import { perceive, markPerceived, peek, withArticle, labelOf, REVEAL } from './senses.js';
@@ -23,7 +23,7 @@ import { syncAudio, stopAudio, testAudio } from './player.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
-export const VERSION = '2.6.1';
+export const VERSION = '2.7.0';
 const MODULE_ID = 'immersive_worlds';
 const PROMPT_ID = 'IMMERSIVE_WORLDS_STATE';
 const PANEL_ID = 'iw-panel';
@@ -58,6 +58,8 @@ const DEFAULTS = Object.freeze({
     audioThunder: true,
     audioPlace: true,
     audioEvents: true,
+    standing: true,
+    rumours: true,
     artCap: 12,
     artPortraits: false,
     artItems: false,
@@ -119,7 +121,14 @@ function policy() {
     return {
         allowNewCharacters: s.allowNewCharacters, allowNewItems: s.allowNewItems, allowNewLocations: s.allowNewLocations,
         offscreen: s.allowOffscreenEvents, detail: s.simulationDetail, maxNpcs: s.maxNpcs, maxItems: s.maxItems, maxLocations: s.maxLocations,
+        standing: s.standing,
     };
+}
+
+/** Everything that happens after a patch lands, from the model or from the cache: rules the model cannot overrule. */
+function settle(next) {
+    if (settings().rumours) spreadRumours(next, { seed: next.meta.tick });
+    return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +153,7 @@ async function requestHints({ auto = false } = {}) {
     const state = getState();
     if (!state || s.hints === 'off' || hintBusy) return [];
     const mode = REVEAL.includes(s.hudReveal) ? s.hudReveal : 'senses';
-    const view = perceive(state, mode, { userName: ctx().name1, notes: getNotes() });
+    const view = perceive(state, mode, { userName: ctx().name1, notes: getNotes(), standing: settings().standing });
     const last = ctx().chat?.findLast(m => !m.is_system)?.mes ?? '';
     const chatId = ctx().getCurrentChatId();
     const myEpoch = epoch;
@@ -324,7 +333,7 @@ async function runDirector(index, { manual = false } = {}) {
         const raw = await backgroundGenerate({ system: DIRECTOR_SYSTEM, prompt, maxTokens: clamp(s.directorTokens, 400, 8192), ...backgroundOpts(), temperature: s.temperature, noReasoning: s.noReasoning });
         const patch = parseJson(raw);
         if (myEpoch !== epoch || ctx().getCurrentChatId() !== chatId || !getState()) return log('director result dropped: chat moved on');
-        const next = applyPatch(getState(), patch, policy());
+        const next = settle(applyPatch(getState(), patch, policy()));
         next.meta.lastIndex = index;
         next.meta.pending = 0;
         const msg = ctx().chat?.[index];
@@ -381,7 +390,7 @@ function onMessageSwiped(index) {
     const patch = ctx().chat?.[index]?.extra?.iw_patch;
     if (patch) {
         try {
-            const next = applyPatch(getState(), patch, policy());
+            const next = settle(applyPatch(getState(), patch, policy()));
             next.meta.lastIndex = index;
             next.meta.pending = 0;
             ctx().chatMetadata[STATE_KEY] = next;
@@ -502,7 +511,7 @@ function paintHud(quiet = false) {
     const s = settings();
     const state = getState();
     const mode = REVEAL.includes(s.hudReveal) ? s.hudReveal : 'senses';
-    renderHud(s.enabled && s.hud && state ? perceive(state, mode, { userName: ctx().name1, notes: getNotes() }) : null, { quiet, ideas: currentIdeas() });
+    renderHud(s.enabled && s.hud && state ? perceive(state, mode, { userName: ctx().name1, notes: getNotes(), standing: settings().standing }) : null, { quiet, ideas: currentIdeas() });
 }
 
 function avatarUrl(person) {
@@ -623,7 +632,7 @@ function itemArt(action, id) {
     const store = getArtStore();
     const key = artKey('item', id);
     if (action === 'remove') { dropArt(store, key); return saveArt(); }
-    const view = perceive(state, REVEAL.includes(settings().hudReveal) ? settings().hudReveal : 'senses', { userName: ctx().name1, notes: getNotes() });
+    const view = perceive(state, REVEAL.includes(settings().hudReveal) ? settings().hudReveal : 'senses', { userName: ctx().name1, notes: getNotes(), standing: settings().standing });
     const brief = itemBrief(view, id, i => state.items.find(x => x.id === i)?.description ?? '');
     if (!brief) return;
     const old = getArt(store, key);
@@ -661,7 +670,7 @@ function wantArt() {
         }
         if (s2.artPortraits) {
             // Only people the HUD shows, with no sprite and no avatar, drawn from how you see them (never the sheet's appearance).
-            for (const p of perceive(state, REVEAL.includes(s2.hudReveal) ? s2.hudReveal : 'senses', { userName: ctx().name1, notes: getNotes() }).people) {
+            for (const p of perceive(state, REVEAL.includes(s2.hudReveal) ? s2.hudReveal : 'senses', { userName: ctx().name1, notes: getNotes(), standing: settings().standing }).people) {
                 const key = artKey('person', p.id);
                 if (p.isYou || getArt(getArtStore(), key) || failedKeys.has(key) || p.avatar || spriteUrl(p)) continue;
                 log('art wanted', key, q.enqueue({ key, kind: 'person', size: [512, 768], prompt: portraitPrompt({ label: p.label, look: p.look, tags: p.tags }) }));
@@ -840,7 +849,7 @@ async function inspectNpc(id) {
     if (!n) return;
     const where = state.locations.find(l => l.id === n.locationId)?.name || 'unknown';
     const routine = n.routine ? Object.entries(n.routine).map(([slot, lid]) => `${slot}: ${state.locations.find(l => l.id === lid)?.name || lid}`).join(' · ') : '';
-    const rows = [['Appearance', n.appearance], ['Personality', n.personality], ['Relationship', n.relationship], ['Goals', n.goals.join(' · ')], ['Routine', routine], ['Carries', n.inventory.join(', ')]];
+    const rows = [['Appearance', n.appearance], ['Personality', n.personality], ['Relationship', n.relationship], ...(settings().standing && typeof n.bond === 'number' ? [['Standing', `${n.bond > 0 ? '+' : ''}${n.bond} of 5`]] : []), ['Goals', n.goals.join(' · ')], ['Routine', routine], ['Carries', n.inventory.join(', ')]];
     const html = `<div class="imx-dialog"><h3>${escapeHtml(n.name)}</h3><div class="imx-row"><span class="imx-pill">${escapeHtml(n.role)}</span><span class="imx-pill">${escapeHtml(n.status)}</span><span class="imx-pill"><i class="fa-solid fa-location-dot"></i>${escapeHtml(where)}</span></div>${rows.filter(([, v]) => v).map(([k, v]) => `<div><div class="imx-label">${k}</div><p class="imx-text">${escapeHtml(v)}</p></div>`).join('')}</div>`;
     await ctx().callGenericPopup(html, ctx().POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
 }

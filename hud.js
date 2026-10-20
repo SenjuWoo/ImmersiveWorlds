@@ -151,9 +151,13 @@ function cardHtml(p) {
     const rows = (title, list) => list.length ? `<div class="iw-hud-sec">${title}</div>${list.map(([k, v]) => `<div class="iw-hud-row"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('')}` : '';
     const has = p.holding.length ? [['Holding', p.holding.join(', ')]] : [];
     const truth = p.truth?.length ? [['Hidden', p.truth.join(' · ')]] : [];
-    const learned = p.learned?.length ? `<div class="iw-hud-sec">Learned</div>${p.learned.map(f => `<div class="iw-hud-fact ${f.fresh ? 'is-fresh' : ''}"><i class="fa-solid ${KIND_ICON[f.k] ?? KIND_ICON.other}"></i><span>${esc(f.t)}</span></div>`).join('')}` : '';
+    // Standing: a bar from the middle out. The number is never shown as a number, only as length and colour.
+    const bond = typeof p.bond === 'number'
+        ? `<div class="iw-hud-bond ${p.bond > 0 ? 'pos' : p.bond < 0 ? 'neg' : ''}" role="img" aria-label="standing ${p.bond} of 5" title="Standing ${p.bond > 0 ? '+' : ''}${p.bond} of 5"><span style="width:${Math.abs(p.bond) / 5 * 100}%"></span></div>`
+        : '';
+    const learned = p.learned?.length ? `<div class="iw-hud-sec">Learned</div>${p.learned.map(f => `<div class="iw-hud-fact ${f.fresh ? 'is-fresh' : ''}"><i class="fa-solid ${KIND_ICON[f.k] ?? KIND_ICON.other}"></i><span>${esc(f.t)}</span>${f.from ? `<small class="iw-hud-from">heard from ${esc(f.from)}</small>` : ''}</div>`).join('')}` : '';
     const edit = p.isYou ? '' : `<div class="iw-hud-edit"><button type="button" data-iw-dossier="${esc(p.id)}"><i class="fa-solid fa-book-open"></i>Dossier</button></div>`;
-    const html = rows('Body', p.body) + rows('Mind', p.mind) + rows('Has', has) + learned + rows('Truth', truth);
+    const html = bond + rows('Body', p.body) + rows('Mind', p.mind) + rows('Has', has) + learned + rows('Truth', truth);
     return html ? `<div class="iw-hud-card">${html}${edit}</div>` : '';
 }
 
@@ -161,7 +165,10 @@ function peopleHtml(people, left) {
     const rows = people.map(p => `
         <div class="iw-hud-person ${p.main ? '' : 'is-bg'} ${p.isNew ? 'is-new' : ''} ${p.isYou ? 'is-you' : ''} ${pinned === p.id ? 'is-open' : ''}" data-iw-person="${esc(p.id)}" tabindex="0">
             <span class="iw-hud-who">
-                <span class="iw-hud-name">${esc(p.label)}${p.isYou ? ' <small>you</small>' : ''}</span>
+                <span class="iw-hud-line">
+                    ${typeof p.bond === 'number' ? `<i class="iw-hud-dot ${p.bond > 0 ? 'pos' : p.bond < 0 ? 'neg' : ''}" title="standing ${p.bond > 0 ? '+' : ''}${p.bond}"></i>` : ''}
+                    <span class="iw-hud-name">${esc(p.label)}${p.isYou ? ' <small>you</small>' : ''}</span>
+                </span>
                 <span class="iw-hud-tags">${p.tags.map((t, i) => `<span class="iw-hud-tag ${i === 0 && !p.isYou ? 'is-hot' : ''}">${esc(t)}</span>`).join('')}</span>
             </span>
             ${face(p)}

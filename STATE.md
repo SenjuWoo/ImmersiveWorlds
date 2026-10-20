@@ -1,13 +1,20 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-19 · v2.6.1 · branch `main`
+Updated 2026-10-20 · v2.7.0 · branch `main`
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)
 - Sibling extension sharing `kit.js`, `llm.js` and the kit block of `style.css` byte-for-byte: `../ImmersiveAdventures` (private repo). Edit both copies together; `tests/selftest.js` fails if they drift.
-- Last known good: git tag `v2.6.1` / GitHub release zip; previous `v2.6.0`, `v2.4.1`, `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
-- Roadmap: `docs/superpowers/specs/2026-10-19-weather-audio-design.md` (2.6.0), `.../2026-10-19-place-audio-design.md` (2.6.1), plans alongside in `docs/superpowers/plans/`. Next: 2.6.2, an opt-in CC0 pack for the only sounds that cannot be synthesised — crowd murmur, voices through a door, music; then 2.5.0 (hourly routines, relationship bars, "while you were away", rumours and suspicions).
+- Last known good: git tag `v2.7.0` / GitHub release zip; previous `v2.6.1`, `v2.6.0`, `v2.4.1`, `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- Roadmap: specs in `docs/superpowers/specs/` (weather audio 2.6.0, place audio 2.6.1, standing and rumours 2.7.0), plans alongside in `docs/superpowers/plans/`. Next: 2.7.1 — "while you were away" (needs a stored last-seen time and a summary line) and hourly routines; then 2.6.2, an opt-in CC0 pack for the only sounds that cannot be synthesised (crowd, voices through a door, music). The 2.7.0 spec was written as "2.5.0"; it shipped as 2.7.0 because SillyTavern compares versions and 2.5.0 would have looked like a downgrade.
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
+
+## Verified (2026-10-20, 2.7.0)
+- `npm test` 126/126; `node --check` on every file
+- Schema v5: v2 and v3 states migrate silently, `bond` clamps to −5..5, absent means 0
+- Prompt: `"bond"` appears in the contract only when standing is on; the 3750-char budget still holds
+- Rumours: same room only, `history`/`bond`/`promise` only, never twice, one per room, seeded by the tick so a swipe reproduces it
+- Not verified: **the HUD bar and the *heard from* line were never rendered in a browser**. `hud.js` imports SillyTavern's own modules (`../RossAscends-mods.js` → `script.js`), so a standalone probe loads the whole app; three attempts failed on module resolution and the probe was dropped rather than stubbing the host. The data reaching the markup is tested; the markup is not. First thing to check when you open a chat
 
 ## Verified (2026-10-19, 2.6.1)
 - `npm test` 118/118; `node --check` on every file

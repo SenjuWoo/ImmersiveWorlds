@@ -6,7 +6,7 @@ import { weatherKind } from './scenery.js';
 
 export const STATE_KEY = 'immersive_worlds_state_v1';
 export const TURN_KEY = 'immersive_worlds_turn_v1';
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 export const SLOTS = ['dawn', 'day', 'dusk', 'night'];
 const MAX_CHRONICLE = 40;
 const DONE = new Set(['resolved', 'complete', 'completed', 'failed', 'ended', 'closed', 'abandoned', 'finished']);
@@ -51,6 +51,8 @@ export const BODY = ['restraints', 'wearing', 'position', 'condition'];
 export const MIND = ['mood', 'wants', 'toward'];
 export const YOU = ['wearing', 'position', 'condition'];
 const int = v => Math.max(0, Math.floor(Number(v)) || 0);
+// How a main person truly stands with {{user}}: -5 hatred, 0 a stranger, +5 devotion. Clamped, never free text.
+const bondOf = v => Math.max(-5, Math.min(5, Math.round(Number(v)) || 0));
 export const isOpen = thread => !DONE.has(String(thread?.status || '').toLowerCase());
 
 function normRoutine(r) {
@@ -122,6 +124,7 @@ export function normalizeState(input) {
         personality: str(x.personality, 900),
         goals: strList(x.goals, 8, 300),
         relationship: str(x.relationship, 500) || 'unknown',
+        bond: bondOf(x.bond),
         locationId: ids.has(slug(x.locationId, '')) ? slug(x.locationId, '') : s.currentLocationId,
         status: str(x.status, 100).toLowerCase() || 'active',
         secrets: strList(x.secrets, 6, 300),
@@ -290,7 +293,7 @@ export function buildInjection(state, { strictAgency = true } = {}) {
 
 export const DIRECTOR_SYSTEM = 'You maintain the hidden world state of an ongoing roleplay. Reply with exactly one JSON object and nothing else: no prose, no code fences.';
 
-const PATCH_CONTRACT = `Return one JSON object containing only what changed (omit unchanged keys):
+const PATCH_BASE = `Return one JSON object containing only what changed (omit unchanged keys):
 {"minutes":scene minutes passed 0-90,"jump":"sleep|wait|travel|montage if the exchange skipped time (allows 720)","weather":"","ambient":"1-2 sensory sentences","now":"1-2 sentences: what is happening right now, as {{user}} knows it","move_to":"id of the place {{user}} ended up in",
 "you":{"wearing","position","condition","holding":[]},"sounds":{"door exit id":"what {{user}} hears from there"},
 "locations":[{"id","name","type","description","connections":["id"],"routes":{"id":{"minutes":0,"sense":"open|door|none"}}}],
@@ -301,6 +304,14 @@ const PATCH_CONTRACT = `Return one JSON object containing only what changed (omi
 "learned":[{"id","k":"like|dislike|interest|history|trait|bond|promise","t":"≤12 words"}]}
 Upsert by id: a known id patches only the fields you send; a new id needs every field and a link (connections+routes, owner/place, locationId and routine). Ids are lowercase-hyphen slugs. status "resolved" or "failed" closes a thread. ownerId "player" = {{user}} carries it.
 State fields only for people HERE. People with a SHEETS line are main; others are background: tags only. For main people, body/mind/holding/tags = what {{user}} actually noticed (looked away or covered = not noticed); mind = {{user}}'s read, hedged with "?" (wants: "some time alone?"), never true intent; truth {{user}} can't perceive goes in "hidden" (one line). nameKnown once {{user}} learned the name. learned = what {{user}} saw, heard or was told in the NEW EXCHANGE, max 3 per person, not already in KNOWN, never hidden facts. you = {{user}}'s visible state from their own words, never feelings. Animals and people are never items (animals go in npcs). move_to only when {{user}}'s own message takes them somewhere, never because the narration placed them. Sheets win: never contradict a sheet. Everyone moves only along routes (EXITS); locationId is where someone heads.`;
+
+/**
+ * The patch contract for the director. `bond` only exists when standing is on, so a world with the
+ * feature switched off pays nothing for it in tokens and the model never invents the field.
+ */
+const patchContract = ({ standing = true } = {}) => (standing
+    ? PATCH_BASE.replace('"hidden":"truth {{user}} cannot perceive"}', '"hidden":"truth {{user}} cannot perceive","bond":-5..5')
+    : PATCH_BASE);
 
 function budget(detail) {
     return detail === 'maximum' ? 3 : detail === 'high' ? 2 : 1;
@@ -337,7 +348,7 @@ export function directorPrompt(state, transcript, policy = {}, sheets = {}) {
         items.length ? `ITEMS ${items.map(i => `${i.id}=${i.name}${i.ownerId ? `@${i.ownerId}` : ''}`).join(', ')}` : '',
         threads.length ? `OPEN ${threads.map(t => `${t.id}=${t.name}`).join('; ')}` : '',
         `NEW EXCHANGE\n${transcript || '(none)'}`,
-        PATCH_CONTRACT,
+        patchContract(policy),
         `Materialize what the exchange implies${allow.length ? ` (${allow.join(', ')}; at most ${n} new per kind)` : ' only by updating existing entries'}, only here or along the exits. Advance open threads; people follow their routines as time passes.${policy.offscreen === false ? ' No off-screen events.' : ' Off-screen change only when causally justified.'} Never invent {{user}}'s actions, words or feelings.`,
     ].filter(Boolean).join('\n');
 }
