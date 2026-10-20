@@ -1,13 +1,18 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-19 · v2.6.0 · branch `main`
+Updated 2026-10-19 · v2.6.1 · branch `main`
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)
 - Sibling extension sharing `kit.js`, `llm.js` and the kit block of `style.css` byte-for-byte: `../ImmersiveAdventures` (private repo). Edit both copies together; `tests/selftest.js` fails if they drift.
-- Last known good: git tag `v2.6.0` / GitHub release zip; previous `v2.4.1`, `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
-- Roadmap: `docs/superpowers/specs/2026-10-19-weather-audio-design.md` + `docs/superpowers/plans/2026-10-19-weather-audio-2-6-0.md` (2.6.0, done). Next: 2.6.1 place beds and one-shots behind a small CC0 pack; then 2.5.0 (hourly routines, relationship bars, "while you were away", rumours and suspicions).
+- Last known good: git tag `v2.6.1` / GitHub release zip; previous `v2.6.0`, `v2.4.1`, `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- Roadmap: `docs/superpowers/specs/2026-10-19-weather-audio-design.md` (2.6.0), `.../2026-10-19-place-audio-design.md` (2.6.1), plans alongside in `docs/superpowers/plans/`. Next: 2.6.2, an opt-in CC0 pack for the only sounds that cannot be synthesised — crowd murmur, voices through a door, music; then 2.5.0 (hourly routines, relationship bars, "while you were away", rumours and suspicions).
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
+
+## Verified (2026-10-19, 2.6.1)
+- `npm test` 118/118; `node --check` on every file
+- Real-browser probe (headless Edge, the extension's own `audio.js`/`player.js` over HTTP, every gain node recorded): a tavern at volume 0.6 mixes fire 0.115 and room 0.127 under rain; a harbour mixes water 0.196 and hum 0.029; turning place sounds off ramps all five layers to zero; 20 identical repaints add no nodes; a `drip` cue builds two oscillators immediately; the graph is 14 gains, 9 sources, 3 oscillators. Only console errors were the probe page's own `favicon.ico` 404s
+- Not verified: **a real speaker** (headless has no audio device) and **the extension running inside SillyTavern itself** — the two new switches and the cue path are covered by tests and the probe, not by an E2E run
 
 ## Verified (2026-10-19, 2.6.0)
 - `node tests/selftest.js` 114/114; `node --check` on every file

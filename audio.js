@@ -1,6 +1,6 @@
 // What the weather should sound like: gains and filter cutoffs, no DOM and no WebAudio, so node can test it.
 // The player only moves numbers; every judgement about the world is made here.
-import { currentLocation, weatherClass } from './engine.js';
+import { currentLocation, weatherClass, timeSlot } from './engine.js';
 import { placeKind } from './scenery.js';
 
 // Places whose walls muffle the weather. Anything else is open sky.
@@ -47,12 +47,69 @@ export function weatherSpec(kind, { volume = 1, indoor = false } = {}) {
     };
 }
 
+// ---------------------------------------------------------------------------
+// The place: five continuous textures, mixed per kind. The weather stays where
+// it is; this is the room underneath it.
+// ---------------------------------------------------------------------------
+
+export const LAYERS = Object.freeze(['water', 'fire', 'room', 'leaves', 'hum']);
+
+// kind -> layer gains. A place is a mix, never a bespoke sound.
+const PLACE = Object.freeze({
+    city: { hum: 0.16, room: 0.05 },
+    market: { hum: 0.20 },
+    harbor: { water: 0.34, hum: 0.05 },
+    tavern: { fire: 0.20, room: 0.22 },
+    temple: { room: 0.28, hum: 0.04 },
+    forest: { leaves: 0.26 },
+    mountain: { leaves: 0.10 },
+    cave: { room: 0.30, water: 0.05 },
+    desert: { leaves: 0.04 },
+    plains: { leaves: 0.20 },
+    road: { leaves: 0.12 },
+    ship: { water: 0.30, room: 0.14 },
+    interior: { room: 0.20, fire: 0.05 },
+    default: { hum: 0.06 },
+});
+
+// One-shots worth hearing in each kind. Repeated entries weight the pick.
+const EVENTS = Object.freeze({
+    city: ['footstep', 'footstep', 'door', 'chair'],
+    market: ['coin', 'coin', 'door', 'footstep'],
+    harbor: ['creak', 'footstep', 'coin'],
+    tavern: ['chair', 'chair', 'coin', 'door'],
+    temple: [],
+    forest: ['bird', 'bird', 'drip', 'creak'],
+    mountain: ['bird', 'creak'],
+    cave: ['drip', 'drip', 'creak'],
+    desert: [],
+    plains: ['bird', 'bird', 'footstep'],
+    road: ['footstep', 'footstep', 'bird'],
+    ship: ['creak', 'creak', 'footstep'],
+    interior: ['door', 'chair', 'page'],
+    default: ['footstep'],
+});
+
+/** Birdsong is daylight only; everything else keeps its own hours. */
+const eventSet = (kind, slot) => (EVENTS[kind] ?? EVENTS.default).filter(e => e !== 'bird' || slot === 'dawn' || slot === 'day');
+
+/** The room's own sound. `place: false` silences the bed; `events: false` silences the one-shots. */
+export function placeSpec(kind, slot = 'day', { volume = 1, place = true, events = true } = {}) {
+    const k = PLACE[kind] ? kind : 'default';
+    const row = PLACE[k];
+    const v = clampVolume(volume);
+    const layers = {};
+    for (const l of LAYERS) layers[l] = place ? (row[l] ?? 0) * v : 0;
+    return { placeKind: k, layers, events: events && place ? eventSet(k, slot) : [] };
+}
+
 /** The bed for the world right now. `indoor: null` reads it from the current place. */
-export function audioSpec(state, { volume = 1, indoor = null } = {}) {
+export function audioSpec(state, { volume = 1, indoor = null, place = true, events = true } = {}) {
     const loc = state ? currentLocation(state) : null;
     const kind = state ? weatherClass(state) : 'clear';
     const inside = indoor === null ? isEnclosed(loc) : Boolean(indoor);
-    return { ...weatherSpec(kind, { volume, indoor: inside }), storm: kind === 'storm' };
+    const room = placeSpec(placeKind(loc?.type, loc?.name), state ? timeSlot(state) : 'day', { volume, place, events });
+    return { ...weatherSpec(kind, { volume, indoor: inside }), ...room, storm: kind === 'storm' };
 }
 
 // A flash and its clap: near strikes come fast, far ones roll in late. Deterministic with an injected rand.
@@ -60,4 +117,7 @@ export const thunderDelay = (rand = Math.random) => 400 + rand() * 3600;
 export const nextStrike = (rand = Math.random) => 9000 + rand() * 15000;
 
 /** Stable identity of a spec, so the player can skip a repaint that changes nothing. */
-export const specKey = s => [s.kind, s.indoor ? 1 : 0, s.rain.toFixed(3), s.lp | 0, s.hp | 0, s.roar.toFixed(3), s.roarLp | 0, s.wind.toFixed(3), s.windLp | 0, s.whistle.toFixed(3)].join('|');
+export const specKey = s => [
+    s.kind, s.indoor ? 1 : 0, s.rain.toFixed(3), s.lp | 0, s.hp | 0, s.roar.toFixed(3), s.roarLp | 0, s.wind.toFixed(3), s.windLp | 0, s.whistle.toFixed(3),
+    s.placeKind ?? '', ...LAYERS.map(l => (s.layers?.[l] ?? 0).toFixed(3)), (s.events ?? []).join(','),
+].join('|');

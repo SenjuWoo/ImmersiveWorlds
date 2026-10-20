@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ee6c5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.6.0"><img src="https://img.shields.io/badge/release-v2.6.0-8f9aa6?labelColor=0d0f11" alt="v2.6.0"></a>
+  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.6.1"><img src="https://img.shields.io/badge/release-v2.6.1-8f9aa6?labelColor=0d0f11" alt="v2.6.1"></a>
   <img src="https://img.shields.io/badge/SillyTavern-%E2%89%A5%201.18.0-8f9aa6?labelColor=0d0f11" alt="SillyTavern 1.18+">
 </p>
 
@@ -50,7 +50,7 @@ Immersive Worlds keeps that state in the chat and gives the model a short scene 
 - **Living world per chat**, created only when you ask for one (chats without a world cost nothing)
 - **Build world**: one background call drafts places, people, items, factions and threads from the character card, scenario and lorebook. **Start** seeds a minimal world with no model call
 - **Scene backdrop** behind the chat, in its own layer (your own background is never touched): a time-of-day and weather grade (dawn, day, dusk, night, darker in storms), optionally a painted scene for the place you are in (city, harbor, tavern, forest, cave, ship, room and more), weather particles (rain, storm, snow, fog, dust) and a small sky-and-skyline strip in the scene card. Off in one click; particles stop under reduced motion
-- **Weather you can hear** (off by default): a continuous bed synthesised in the browser — rain, downpour, wind, the hush of snow, fog, and thunder with a lightning flash while a storm lasts. Indoors is quieter and duller, because a tavern in the rain should sound like a room. No sound files, nothing downloaded. One volume, thunder on/off, a Test button, and silence while the tab is in the background
+- **Weather you can hear** (off by default): a continuous bed synthesised in the browser — rain, downpour, wind, the hush of snow, fog, and thunder with a lightning flash while a storm lasts. Indoors is quieter and duller, because a tavern in the rain should sound like a room. No sound files, nothing downloaded. One volume, thunder on/off, a Test button, and silence while the tab is in the background. The room has a bed of its own: water in a harbour, fire and a room in a tavern, leaves in a forest, a cave's low tone — plus birds by day, drips, a chair, a coin, and a footstep when someone walks in
 - **Generated pictures** (opt in, needs an image backend set up in SillyTavern's Image Generation extension): a picture of the place you are in, one for day and one for night (drawn the first time you are there; weather is drawn over it), portraits for people who have no picture of their own, and item pictures on request. One picture at a time, a per-chat cap, a Test button, and nothing is drawn from anything you have not seen
 - **Background director** after each reply: clock, weather, ambient line, who moved where, new people/places/items the scene implied, chronicle notes
 - **Routines** (dawn / day / dusk / night): people move with the clock, even off-screen
@@ -129,6 +129,8 @@ The scene brief sits at depth 1 (`In-chat @ depth`), so everything above it, inc
 | Weather you can hear | off | The synthesised weather bed and thunder; silent while the tab is in the background |
 | Volume | 60 | Master volume for the weather bed and thunder |
 | Thunder, with a flash of lightning | on | The screen flashes and the clap follows 0.4–4 s later; no flash under reduced motion |
+| Place sounds | on | Water, fire, room tone, leaves and a distant hum, mixed per place kind |
+| One-shots | on | Birds, drips, creaks, footsteps, doors, coins, chairs and pages, at most one every 700 ms |
 | Scene backdrop → Generated picture | off | A generated picture of the place, day and night (needs an image backend); the painted scene shows until it is ready |
 | Most pictures per chat | 12 | Cap on generated pictures (4–40) |
 | Offer a Draw button on item cards | off | Item pictures, only when you press it |
@@ -152,7 +154,7 @@ The scene brief sits at depth 1 (`In-chat @ depth`), so everything above it, inc
 
 ## Log
 
-The browser console (F12 → Console) always shows `[Immersive Worlds] v2.6.0 ready` and every failure with its cause. Turn on **Debug log** in the settings for the resolved settings at startup, every director pass, and every move or change the world rules rejected (with the reason); it logs at the *Verbose* level, so enable that level in the console filter.
+The browser console (F12 → Console) always shows `[Immersive Worlds] v2.6.1 ready` and every failure with its cause. Turn on **Debug log** in the settings for the resolved settings at startup, every director pass, and every move or change the world rules rejected (with the reason); it logs at the *Verbose* level, so enable that level in the console filter.
 
 ## Project map
 
@@ -193,6 +195,7 @@ Verified:
 - 2.4.1 end-to-end in an isolated SillyTavern 1.19.0 against a stub `/imagine`: a place picture is drawn on first visit and cached, day and night get one each (dawn shares day, dusk shares night), travelling away mid-draw lands the picture under its own place, a chat switch drops a late result, two failures in a row give one toast and pause, Test resumes, the cap and Clear work, portraits use the look (never the sheet's appearance), item pictures draw, redraw and remove on request. **Not run against a real image backend**
 - Reload persistence of the world and the HUD; Forge, Make card and swipe browsing were verified in 2.0.0 (their host code did not change; not re-run this round)
 
+- 2.6.1: `npm test` 118/118; the place bed driven in headless Edge with every gain node recorded — a tavern mixes fire 0.115 and room 0.127 at volume 0.6, a harbour mixes water 0.196 and hum 0.029, turning place sounds off ramps all five layers to zero, twenty identical repaints add no nodes, and a `drip` cue builds its two oscillators on the spot. **Not heard through a speaker** (headless has no audio device) and **not yet run inside SillyTavern itself**
 - 2.6.0: `node tests/selftest.js` 114/114 and `node --check` on every file; the audio graph driven for real in headless Edge (the extension's own `audio.js`/`player.js`/`backdrop.js` loaded over HTTP with every gain node recorded): a storm bed reaches its gain and holds it, twenty identical repaints create no new nodes, clear weather ramps back to silence, indoors is measurably quieter than the same rain outdoors (0.053 vs 0.133), the flash layer exists at z-index 900 and animates, and `prefers-reduced-motion` stops the flash being created at all. **Not verified against a real speaker** (headless has no output device) and **not yet run inside SillyTavern itself**
 
 Not claimed:

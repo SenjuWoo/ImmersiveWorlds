@@ -23,7 +23,7 @@ import { syncAudio, stopAudio, testAudio } from './player.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
-export const VERSION = '2.6.0';
+export const VERSION = '2.6.1';
 const MODULE_ID = 'immersive_worlds';
 const PROMPT_ID = 'IMMERSIVE_WORLDS_STATE';
 const PANEL_ID = 'iw-panel';
@@ -56,6 +56,8 @@ const DEFAULTS = Object.freeze({
     audio: false,
     audioVolume: 60,
     audioThunder: true,
+    audioPlace: true,
+    audioEvents: true,
     artCap: 12,
     artPortraits: false,
     artItems: false,
@@ -534,13 +536,22 @@ function paintStatus() {
 
 // Weather you can hear. Derived from the same state as the backdrop, on the same refresh, so swiping,
 // regenerating, deleting, travel and chat switches all rewind the sound exactly as they rewind the HUD.
+let lastAudioTick = -1;
 function applyAudio() {
     const s = settings();
     const state = getState();
+    const tick = state?.meta?.tick ?? -1;
+    const fresh = tick !== lastAudioTick;
+    lastAudioTick = tick;
     if (!s.enabled || !s.audio || !state) return stopAudio();
-    syncAudio(audioSpec(state, { volume: clampVolume(Number(s.audioVolume) / 100) }), {
+    // Someone came in or went out this tick: one footstep, one door, no repeats on repaints.
+    const cues = fresh && s.audioEvents
+        ? [state.scene?.arrived?.length ? 'footstep' : '', state.scene?.left?.length ? 'door' : ''].filter(Boolean)
+        : [];
+    syncAudio(audioSpec(state, { volume: clampVolume(Number(s.audioVolume) / 100), place: s.audioPlace, events: s.audioEvents }), {
         thunder: s.audioThunder,
         onFlash: flash,
+        cues,
     });
 }
 
@@ -1129,7 +1140,10 @@ async function mountSettings() {
     document.getElementById('iw-art-clear')?.addEventListener('click', clearArtStore);
     document.getElementById('iw-audio-test')?.addEventListener('click', () => {
         const volume = clampVolume(Number(settings().audioVolume) / 100);
-        if (!testAudio(weatherSpec('storm', { volume }))) return toastr.warning('This browser has no Web Audio support.', TITLE);
+        const state = getState();
+        // A world has its own weather and place; without one, a storm proves the graph works.
+        const spec = state ? audioSpec(state, { volume }) : weatherSpec('storm', { volume });
+        if (!testAudio(spec)) return toastr.warning('This browser has no Web Audio support.', TITLE);
         setTimeout(applyAudio, 4500); // the test is a storm; go back to whatever the world is doing
     });
     document.getElementById('iw-model-recommend')?.addEventListener('click', () => {
@@ -1196,6 +1210,7 @@ function registerMacros() {
 function onChatChanged() {
     epoch += 1;
     queued = null;
+    lastAudioTick = -1;
     queue?.reset();
     failedKeys.clear();
     const md = ctx().chatMetadata;

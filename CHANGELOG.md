@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.6.1 — 2026-10-19
+
+Places you can hear. 2.6.0 gave the weather a voice; this gives the room one. Still no sound files.
+
+- **Place beds**: five continuous textures — water, fire, room tone, leaves and a distant hum — mixed per place kind. A harbour has water, a tavern has fire and a room, a forest has leaves, a cave has both.
+- **One-shots**: birds by day in a forest, drips in a cave, chairs and coins in a tavern, a creak on a ship, footsteps on a road. One every 2.5–8 s, never more than one every 700 ms, never while the tab is hidden.
+- **World-driven cues**: a footstep when someone arrives and a door when someone leaves, once per tick, from the same `scene.arrived` / `scene.left` the HUD uses.
+- Two new switches under Sound: **place sounds** and **one-shots**. The weather bed keeps working with both off.
+- Still no voices, crowd or music: they cannot be synthesised convincingly and stay out until 2.6.2, behind an opt-in pack.
+- Tests: 118.
+
 ## 2.6.0 — 2026-10-19
 
 Weather you can hear. Worlds from 2.4 load unchanged; sound is off until you turn it on.

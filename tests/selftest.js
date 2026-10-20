@@ -13,7 +13,7 @@ import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrate
 import { placeKind, artSlot, skyOf, particleSpec, weatherKind, PLACE_KINDS } from '../scenery.js';
 import { migrateBackdrop, silhouetteSvg, pictureKey, gradeOf, sanitizeBackdrop } from '../backdrop.js';
 import { makeParticles, stepParticles } from '../particles.js';
-import { BEDS, weatherSpec, audioSpec, isEnclosed, thunderDelay, nextStrike, specKey, clampVolume } from '../audio.js';
+import { BEDS, LAYERS, weatherSpec, placeSpec, audioSpec, isEnclosed, thunderDelay, nextStrike, specKey, clampVolume } from '../audio.js';
 import { normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue, isImagePath } from '../art.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
@@ -1261,7 +1261,44 @@ t('audio wiring: the host syncs on refresh, the settings offer it, and versions 
     assert.ok(index.includes('applyAudio(); // sound does not depend on the backdrop mode'), 'sound must not sit behind the backdrop mode');
     assert.ok(/audio: false/.test(index), 'sound is off by default');
     assert.ok(html.includes('id="iw-audio-test"') && html.includes('data-iw-setting="audio"'), 'settings expose the switch and the test');
-    assert.equal(manifest.version, '2.6.0');
+    assert.equal(manifest.version, '2.6.1');
+});
+
+t('audio: a place is a mix of the five textures, and every kind has one', () => {
+    assert.deepEqual([...LAYERS], ['water', 'fire', 'room', 'leaves', 'hum']);
+    assert.ok(placeSpec('harbor').layers.water > 0.2, 'a harbour has water');
+    assert.ok(placeSpec('tavern').layers.fire > 0 && placeSpec('tavern').layers.room > 0, 'a tavern has fire and a room');
+    assert.ok(placeSpec('forest').layers.leaves > 0.2, 'a forest has leaves');
+    assert.ok(placeSpec('cave').layers.room > 0.2, 'a cave has a room tone');
+    assert.equal(placeSpec('nowhere').placeKind, 'default', 'an unknown place falls back');
+    for (const l of LAYERS) assert.equal(typeof placeSpec('tavern').layers[l], 'number');
+});
+
+t('audio: one-shots keep their own hours', () => {
+    assert.ok(placeSpec('forest', 'day').events.includes('bird'), 'birds by day');
+    assert.ok(!placeSpec('forest', 'night').events.includes('bird'), 'no birds at night');
+    assert.ok(placeSpec('cave').events.includes('drip'), 'drips in a cave');
+    assert.equal(placeSpec('temple').events.length, 0, 'a temple is quiet');
+    assert.ok(placeSpec('tavern').events.length > 0);
+});
+
+t('audio: the place switches zero the bed and the one-shots', () => {
+    const off = placeSpec('tavern', 'day', { place: false });
+    assert.equal(off.layers.fire + off.layers.room, 0);
+    assert.equal(off.events.length, 0);
+    assert.ok(placeSpec('tavern', 'day', { events: false }).events.length === 0);
+    assert.ok(placeSpec('tavern', 'day', { events: false }).layers.fire > 0, 'the bed survives the one-shot switch');
+});
+
+t('audio: the world mixes its weather and its room', () => {
+    const s = world();
+    s.locations[0].type = 'tavern';
+    const spec = audioSpec(s, { volume: 1 });
+    assert.ok(spec.rain > 0, 'rain from the weather');
+    assert.ok(spec.layers.fire > 0 && spec.layers.room > 0, 'the room under it');
+    assert.equal(spec.indoor, true, 'a tavern is under a roof');
+    assert.ok(spec.events.length > 0);
+    assert.notEqual(specKey(spec), specKey(audioSpec(world(), { volume: 1 })), 'two places are two keys');
 });
 
 let failed = 0;
