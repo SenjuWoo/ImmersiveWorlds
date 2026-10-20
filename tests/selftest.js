@@ -13,6 +13,7 @@ import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrate
 import { placeKind, artSlot, skyOf, particleSpec, weatherKind, PLACE_KINDS } from '../scenery.js';
 import { migrateBackdrop, silhouetteSvg, pictureKey, gradeOf, sanitizeBackdrop } from '../backdrop.js';
 import { makeParticles, stepParticles } from '../particles.js';
+import { BEDS, weatherSpec, audioSpec, isEnclosed, thunderDelay, nextStrike, specKey, clampVolume } from '../audio.js';
 import { normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue, isImagePath } from '../art.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint } from '../rules.js';
@@ -1182,6 +1183,85 @@ t('art review: reset() never lets two pictures draw at once, and the cap does no
     await capped.whenIdle();
     const index = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
     assert.ok(index.includes('extend=false') && index.includes('edit=false'), 'the user\'s own Image Generation prompt extending/editing must not apply');
+});
+
+t('audio: every weather kind the engine can report has a bed, and clear is silence', () => {
+    for (const kind of ['clear', 'cloudy', 'overcast', 'rain', 'storm', 'snow', 'fog', 'haze', 'wind', 'hot', 'cold']) assert.ok(BEDS[kind], `no bed for ${kind}`);
+    const clear = weatherSpec('clear');
+    assert.equal(clear.rain + clear.roar + clear.wind + clear.whistle, 0, 'clear weather must be silent, not a hum');
+    assert.equal(weatherSpec('eldritch haze').kind, 'clear', 'unknown weather falls back to clear');
+});
+
+t('audio: rain is audible, snow is darker, storm has wind', () => {
+    const rain = weatherSpec('rain'), snow = weatherSpec('snow'), storm = weatherSpec('storm');
+    assert.ok(rain.rain > 0 && rain.rain < storm.rain, 'storm is heavier than rain');
+    assert.ok(snow.lp < rain.lp / 3, 'snow is low-passed hard');
+    assert.ok(storm.wind > rain.wind * 3, 'storm brings wind');
+});
+
+t('audio: indoors is quieter and duller than the same weather outside', () => {
+    const out = weatherSpec('storm'), inside = weatherSpec('storm', { indoor: true });
+    assert.ok(inside.rain < out.rain * 0.5, 'walls cut the level');
+    assert.ok(inside.lp < out.lp * 0.5, 'walls cut the treble');
+    assert.ok(inside.wind < out.wind * 0.5, 'wind is the first thing a wall takes');
+    assert.equal(inside.kind, 'storm', 'the weather is still a storm indoors');
+});
+
+t('audio: volume scales gains, never filter cutoffs', () => {
+    const full = weatherSpec('rain', { volume: 1 }), half = weatherSpec('rain', { volume: 0.5 });
+    assert.ok(Math.abs(half.rain - full.rain / 2) < 1e-9);
+    assert.equal(half.lp, full.lp);
+    assert.equal(weatherSpec('rain', { volume: 0 }).rain, 0, 'zero volume is silence');
+    assert.equal(clampVolume(5), 1);
+    assert.equal(clampVolume(-1), 0);
+});
+
+t('audio: a place is enclosed by its kind, the same classifier the backdrop uses', () => {
+    assert.ok(isEnclosed({ type: 'tavern', name: 'The Gilded Stag' }));
+    assert.ok(isEnclosed({ type: '', name: 'A quiet bedroom' }));
+    assert.ok(isEnclosed({ type: 'cave', name: '' }));
+    assert.ok(isEnclosed({ type: 'ship', name: 'The Saltmaiden' }));
+    assert.ok(!isEnclosed({ type: 'plaza', name: 'Market Square' }));
+    assert.ok(!isEnclosed({ type: 'harbor', name: 'Docks' }));
+    assert.ok(!isEnclosed(null), 'no place is not enclosed');
+});
+
+t('audio: the world picks the bed, and a storm is a storm', () => {
+    const s = world();                       // Market Square, rain
+    const spec = audioSpec(s, { volume: 0.8 });
+    assert.equal(spec.kind, 'rain');
+    assert.equal(spec.indoor, false);
+    assert.equal(spec.storm, false);
+    s.clock.weather = 'thunderstorm over the bay';
+    const storm = audioSpec(s, { volume: 0.8 });
+    assert.equal(storm.kind, 'storm');
+    assert.equal(storm.storm, true);
+    assert.equal(audioSpec(null).kind, 'clear', 'no world is silence');
+});
+
+t('audio: thunder comes after the flash, within the range a real strike would', () => {
+    assert.equal(thunderDelay(() => 0), 400);
+    assert.equal(thunderDelay(() => 1), 4000);
+    assert.equal(nextStrike(() => 0), 9000);
+    assert.equal(nextStrike(() => 1), 24000);
+});
+
+t('audio: specKey is stable for the same bed and changes when it does', () => {
+    const a = weatherSpec('rain', { volume: 0.6 }), b = weatherSpec('rain', { volume: 0.6 });
+    assert.equal(specKey(a), specKey(b));
+    assert.notEqual(specKey(a), specKey(weatherSpec('storm', { volume: 0.6 })));
+    assert.notEqual(specKey(a), specKey(weatherSpec('rain', { volume: 0.3 })));
+});
+
+t('audio wiring: the host syncs on refresh, the settings offer it, and versions agree', () => {
+    const index = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+    const html = readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
+    const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+    assert.ok(index.includes('syncAudio(audioSpec('), 'refresh must drive the bed');
+    assert.ok(index.includes('applyAudio(); // sound does not depend on the backdrop mode'), 'sound must not sit behind the backdrop mode');
+    assert.ok(/audio: false/.test(index), 'sound is off by default');
+    assert.ok(html.includes('id="iw-audio-test"') && html.includes('data-iw-setting="audio"'), 'settings expose the switch and the test');
+    assert.equal(manifest.version, '2.6.0');
 });
 
 let failed = 0;

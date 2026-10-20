@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.6.0 — 2026-10-19
+
+Weather you can hear. Worlds from 2.4 load unchanged; sound is off until you turn it on.
+
+- **Sound**: a continuous weather bed that follows the world — rain, downpour, wind, the hush of snow, fog, and thunder while a storm lasts. Synthesised in the browser from noise and filters: no sound files, nothing downloaded, nothing to license, and no loop seam to get tired of.
+- **Thunder with a flash**: the screen lights up and the clap follows 0.4–4 s later, so a near strike snaps and a far one rolls in.
+- **Indoors is quieter and duller**: the same classifier that picks the backdrop's skyline decides whether you are under a roof, so a tavern in the rain sounds like a room and a market sounds like a street.
+- **Volume, thunder on/off, Test sound**, and silence while the tab is in the background. Off by default.
+- Sound is a view of the world, not a second state: it is driven from the same refresh as the HUD, so swiping, regenerating, deleting, travelling and switching chats rewind it exactly as they rewind the HUD.
+- No new model calls, no prompt text, no new chat metadata, no schema change.
+- Tests: 114.
+
 ## 2.4.1 — 2026-10-13
 
 Scene visuals II: generated art (opt in). Worlds from 2.4 load unchanged.

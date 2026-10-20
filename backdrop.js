@@ -54,6 +54,7 @@ export function silhouetteSvg(kind) {
 }
 
 let layer = null;
+let flashEl = null;
 
 /** Create the layer right after #bg1 (so it paints above SillyTavern's background and below the UI). Idempotent. */
 export function mountBackdrop() {
@@ -69,9 +70,28 @@ export function mountBackdrop() {
 export function unmountBackdrop() {
     layer?.remove();
     layer = null;
+    flashEl?.remove();
+    flashEl = null;
 }
 
 const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/**
+ * A lightning flash over the whole viewport, for thunder to follow. Two pulses, no flash under reduced
+ * motion (photosensitivity), and the layer is reused so a storm does not litter the DOM.
+ */
+export function flash() {
+    if (reduced() || typeof document === 'undefined') return;
+    if (!flashEl?.isConnected) {
+        flashEl = document.createElement('div');
+        flashEl.id = 'iw-flash';
+        flashEl.setAttribute('aria-hidden', 'true');
+        document.body.append(flashEl);
+    }
+    flashEl.classList.remove('is-on');
+    void flashEl.offsetWidth; // reflow, so the animation restarts on every strike
+    flashEl.classList.add('is-on');
+}
 
 /**
  * Draw the backdrop. `mode`: off | tint (grade only) | scene (sky + silhouette) | art (a picture, scene until it exists).

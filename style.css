@@ -265,6 +265,23 @@ button.imx-pill:hover, button.imx-pill:focus-visible { border-color: var(--Smart
 /* Weather particles: over the backdrop, under the HUD (29) and under SillyTavern's chat column (#sheld, 30), so rain falls in the side gutters and never over the text. Never takes clicks. */
 #iw-particles { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 28; pointer-events: none; }
 
+/* Lightning: a short flash over the whole viewport, above the chat column (30) but under drawers (3000) and panels (4000),
+   so a storm lights the screen without making an open drawer unreadable. Never takes clicks. */
+#iw-flash {
+    position: fixed; inset: 0; z-index: 900; pointer-events: none; opacity: 0;
+    background: radial-gradient(120% 90% at 70% 0%, #eaf1ff 0%, #c2d3f2 45%, #93aada 100%);
+}
+#iw-flash.is-on { animation: iw-flash 900ms ease-out; }
+@keyframes iw-flash {
+    0% { opacity: 0; }
+    4% { opacity: .5; }
+    9% { opacity: .06; }
+    14% { opacity: .42; }
+    30% { opacity: .08; }
+    55%, 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { #iw-flash { display: none; } }
+
 /* Immersive Worlds HUD: floats in the free space beside the chat, under drawers (3000) and MovingUI panels (4000). */
 #iw-hud {
     position: fixed;

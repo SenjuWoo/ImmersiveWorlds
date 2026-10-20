@@ -1,13 +1,18 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-13 · v2.4.1 · branch `main`
+Updated 2026-10-19 · v2.6.0 · branch `main`
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)
 - Sibling extension sharing `kit.js`, `llm.js` and the kit block of `style.css` byte-for-byte: `../ImmersiveAdventures` (private repo). Edit both copies together; `tests/selftest.js` fails if they drift.
-- Last known good: git tag `v2.4.1` / GitHub release zip; previous `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
-- Roadmap: `docs/superpowers/specs/2026-10-13-living-senses-design.md`; 2.3.0 plan `docs/superpowers/plans/2026-10-13-living-senses-2-3-0.md`. Scene visuals plan (2.4.0 and 2.4.1 done): `docs/superpowers/plans/2026-10-13-scene-visuals-2-4.md`. Next: 2.5.0 (hourly routines, relationship bars, "while you were away", rumours and suspicions).
+- Last known good: git tag `v2.6.0` / GitHub release zip; previous `v2.4.1`, `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- Roadmap: `docs/superpowers/specs/2026-10-19-weather-audio-design.md` + `docs/superpowers/plans/2026-10-19-weather-audio-2-6-0.md` (2.6.0, done). Next: 2.6.1 place beds and one-shots behind a small CC0 pack; then 2.5.0 (hourly routines, relationship bars, "while you were away", rumours and suspicions).
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
+
+## Verified (2026-10-19, 2.6.0)
+- `node tests/selftest.js` 114/114; `node --check` on every file
+- Real-browser probe (headless Edge, Playwright, the extension's own modules over HTTP, every gain node recorded): storm bed reaches and holds its gain; 20 identical repaints create no new nodes; clear weather ramps back to silence; indoors 0.053 vs outdoors 0.133 for the same rain; `#iw-flash` exists, animates and computes z-index 900; under `prefers-reduced-motion` the flash element is never created. Only console errors were the probe page's own `favicon.ico` 404s
+- Not verified: **a real speaker** (headless has no audio device, so the graph was measured, not heard) and **the extension running inside SillyTavern itself** — the settings block, the Sound rows and the Test button are covered by the wiring test, not by an E2E run
 
 ## Verified (2026-10-13, 2.4.1)
 - `node tests/selftest.js` 105/105; `node --check` on every file

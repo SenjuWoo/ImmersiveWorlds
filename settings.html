@@ -26,6 +26,18 @@
             </div>
             <label class="checkbox_label"><input type="checkbox" data-iw-setting="particles"><span>Weather particles (rain, snow, fog, dust)</span></label>
 
+            <h4 class="imx-h">Sound</h4>
+            <small class="imx-note">Synthesised in the browser from noise and filters: no sound files, nothing downloaded, nothing licensed. Rain, wind, the hush of snow and thunder follow the weather and the place you are in; indoors is quieter and duller. Off by default, silent while the tab is in the background.</small>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="audio"><span>Weather you can hear</span></label>
+            <div class="imx-field">
+                <label for="iw-audio-volume">Volume</label>
+                <input id="iw-audio-volume" type="range" min="0" max="100" step="5" data-iw-setting="audioVolume" data-type="number">
+            </div>
+            <label class="checkbox_label"><input type="checkbox" data-iw-setting="audioThunder"><span>Thunder, with a flash of lightning</span></label>
+            <div class="flex-container flexGap5">
+                <div id="iw-audio-test" class="menu_button menu_button_icon"><i class="fa-solid fa-volume-high"></i><span>Test sound</span></div>
+            </div>
+
             <h4 class="imx-h">Generated pictures</h4>
             <small class="imx-note">Uses SillyTavern's Image Generation extension, one picture at a time, only for places and things you can see. A place gets one picture for day and one for night, drawn the first time you are there; weather is drawn over it. Nothing is drawn unless you choose "Generated picture" above or tick a box here.</small>
             <div class="imx-field">

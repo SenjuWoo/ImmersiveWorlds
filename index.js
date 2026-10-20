@@ -17,11 +17,13 @@ import { migrateModelMode, fetchModels, modelOptions } from './models.js';
 import { placeKind, particleSpec, artSlot } from './scenery.js';
 import { ART_KEY, normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue, isImagePath } from './art.js';
 import { startParticles, stopParticles } from './particles.js';
-import { mountBackdrop, paintBackdrop, sanitizeBackdrop } from './backdrop.js';
+import { mountBackdrop, paintBackdrop, sanitizeBackdrop, flash } from './backdrop.js';
+import { audioSpec, weatherSpec, clampVolume } from './audio.js';
+import { syncAudio, stopAudio, testAudio } from './player.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
-export const VERSION = '2.4.1';
+export const VERSION = '2.6.0';
 const MODULE_ID = 'immersive_worlds';
 const PROMPT_ID = 'IMMERSIVE_WORLDS_STATE';
 const PANEL_ID = 'iw-panel';
@@ -51,6 +53,9 @@ const DEFAULTS = Object.freeze({
     showStatus: true,
     backdrop: 'tint',
     particles: true,
+    audio: false,
+    audioVolume: 60,
+    audioThunder: true,
     artCap: 12,
     artPortraits: false,
     artItems: false,
@@ -527,8 +532,21 @@ function paintStatus() {
         ${busyChip}`;
 }
 
+// Weather you can hear. Derived from the same state as the backdrop, on the same refresh, so swiping,
+// regenerating, deleting, travel and chat switches all rewind the sound exactly as they rewind the HUD.
+function applyAudio() {
+    const s = settings();
+    const state = getState();
+    if (!s.enabled || !s.audio || !state) return stopAudio();
+    syncAudio(audioSpec(state, { volume: clampVolume(Number(s.audioVolume) / 100) }), {
+        thunder: s.audioThunder,
+        onFlash: flash,
+    });
+}
+
 // Time, weather and place on screen: the grade and (optionally) a painted scene, in our own layer.
 function applyAmbient() {
+    applyAudio(); // sound does not depend on the backdrop mode
     const s = settings();
     const state = getState();
     const on = Boolean(s.enabled && state && s.backdrop !== 'off');
@@ -1077,6 +1095,12 @@ function bindUi() {
         if (e.target.matches?.('[data-iw-setting]')) onSettingChange(e.target);
         if (e.target.id === 'iw-import-file') { importWorld(e.target.files?.[0]); e.target.value = ''; }
     });
+    // A range only fires change on release; volume should follow the thumb.
+    document.addEventListener('input', e => {
+        if (e.target.id !== 'iw-audio-volume') return;
+        settings().audioVolume = Number(e.target.value);
+        applyAudio();
+    });
 }
 
 let modelCache = { at: 0, list: [] };
@@ -1103,6 +1127,11 @@ async function mountSettings() {
     document.getElementById('iw-open-panel')?.addEventListener('click', () => openWorldPanel());
     document.getElementById('iw-art-test')?.addEventListener('click', testImage);
     document.getElementById('iw-art-clear')?.addEventListener('click', clearArtStore);
+    document.getElementById('iw-audio-test')?.addEventListener('click', () => {
+        const volume = clampVolume(Number(settings().audioVolume) / 100);
+        if (!testAudio(weatherSpec('storm', { volume }))) return toastr.warning('This browser has no Web Audio support.', TITLE);
+        setTimeout(applyAudio, 4500); // the test is a storm; go back to whatever the world is doing
+    });
     document.getElementById('iw-model-recommend')?.addEventListener('click', () => {
         Object.assign(settings(), { modelMode: 'model', modelSource: 'openrouter', modelId: 'deepseek/deepseek-v4.1-flash' });
         ctx().saveSettingsDebounced();
