@@ -116,6 +116,10 @@ export function audioSpec(state, { volume = 1, indoor = null, place = true, even
 export const thunderDelay = (rand = Math.random) => 400 + rand() * 3600;
 export const nextStrike = (rand = Math.random) => 9000 + rand() * 15000;
 
+/** One-shots for what just happened: someone came in (footsteps) or went out (a door). Only on a new tick, so a repaint or a reopened chat stays quiet. */
+export const cuesFor = (state, { fresh = false, events = true } = {}) =>
+    fresh && events ? [state?.scene?.arrived?.length ? 'footstep' : '', state?.scene?.left?.length ? 'door' : ''].filter(Boolean) : [];
+
 /** Stable identity of a spec, so the player can skip a repaint that changes nothing. */
 export const specKey = s => [
     s.kind, s.indoor ? 1 : 0, s.rain.toFixed(3), s.lp | 0, s.hp | 0, s.roar.toFixed(3), s.roarLp | 0, s.wind.toFixed(3), s.windLp | 0, s.whistle.toFixed(3),

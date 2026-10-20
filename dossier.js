@@ -2,6 +2,7 @@
 
 export const KINDS = ['like', 'dislike', 'interest', 'history', 'trait', 'bond', 'promise', 'other'];
 export const CAPS = { main: 14, bg: 6 };
+export const HEARD_CAP = 4; // what one person remembers being told
 export const NOTES_KEY = 'immersive_worlds_notes_v1';
 const PER_PATCH = 3;
 const MAX_NOTES = 20;
@@ -14,7 +15,7 @@ const sameText = t => String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').t
 export function normLearned(list) {
     return (Array.isArray(list) ? list : []).map(x => (typeof x === 'string' ? { t: x } : x))
         .filter(x => x && typeof x === 'object' && clip(x.t, 120))
-        .map(x => ({ k: KINDS.includes(x.k) ? x.k : 'other', t: clip(x.t, 120), at: clip(x.at, 20), ...(x.via ? { via: clip(x.via, 60) } : {}) }));
+        .map(x => ({ k: KINDS.includes(x.k) ? x.k : 'other', t: clip(x.t, 120), at: clip(x.at, 20) }));
 }
 
 /** Add up to three new facts to a person. Returns the facts actually added (duplicates and overflow skipped). */

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.8.1 — 2026-10-20
+
+Review fixes for 2.7.0 and 2.8.0. Schema stays v5; old chats migrate on load.
+
+- **Rumours no longer put words in your dossier.** A fact Marta told Bram was filed under Bram's *Learned* list with "heard from Marta", so it read as something you learned about Bram, and the director saw it as known about him. It now lives in what Bram *heard*, shown as **Told** in his card with the teller named, and it never reaches your dossier or the director's KNOWN line. Chats that already hold 2.7/2.8 gossip are moved over on load.
+- **Relations**: the cap now keeps the newest eight pairs (it used to keep the first eight, so a full list could never learn a new one), zeros no longer take a slot, a name the model wrote instead of an id is slugged to the id it would have been, and nobody can be toward themselves. A later word about a pair counts as the newest.
+- **Sound**: opening a chat no longer plays a footstep for an arrival you heard long ago.
+- Cleanup: one helper builds the HUD view from the settings (four call sites each repeated it, and the rumours switch would have been missed in three), an unused import and a dead style rule are gone.
+- Checked in a real SillyTavern 1.19: the standing bar, Toward and Told sections render in the card, a storm fires the lightning flash through the sound path, the Test button and switching sound off raise no console errors.
+- Tests: 134.
+
 ## 2.8.0 — 2026-10-20
 
 Who thinks what of whom. Schema stays v5.

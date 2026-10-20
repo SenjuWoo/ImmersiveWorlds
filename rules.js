@@ -1,6 +1,6 @@
 // World logic the model cannot overrule: routes with travel time and openness, paths, time caps, people in transit.
 // Pure: no SillyTavern imports, no engine imports (engine imports this).
-import { CAPS } from './dossier.js';
+import { HEARD_CAP } from './dossier.js';
 
 export const SENSES = ['open', 'door', 'none'];
 export const JUMPS = ['sleep', 'wait', 'travel', 'montage'];
@@ -176,9 +176,9 @@ export function spreadRumours(state, { seed = state?.meta?.tick ?? 0, maxPerTick
         const { teller, f: fact } = offers[Math.floor(rand() * offers.length)];
         const others = people.filter(p => p !== teller);
         const listener = others[Math.floor(rand() * others.length)];
-        if ((listener.learned ?? []).some(f => sameFact(f.t) === sameFact(fact.t))) continue;
-        const cap = listener.main ? CAPS.main : CAPS.bg;
-        listener.learned = [...(listener.learned ?? []), { k: fact.k, t: fact.t, at: state?.clock?.time ?? '', via: teller.id }].slice(-cap);
+        // It is the listener's memory, not the player's dossier: a fact about the teller must never read as a fact about the listener.
+        if ((listener.heard ?? []).some(h => h.from === teller.id && sameFact(h.t) === sameFact(fact.t))) continue;
+        listener.heard = [...(listener.heard ?? []), { from: teller.id, k: fact.k, t: fact.t }].slice(-HEARD_CAP);
         out.push({ from: teller.id, to: listener.id, t: fact.t });
     }
     return out;

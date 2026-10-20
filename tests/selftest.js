@@ -13,7 +13,7 @@ import { parseModels, modelOptions, withLadder, friendlyOpenRouterError, migrate
 import { placeKind, artSlot, skyOf, particleSpec, weatherKind, PLACE_KINDS } from '../scenery.js';
 import { migrateBackdrop, silhouetteSvg, pictureKey, gradeOf, sanitizeBackdrop } from '../backdrop.js';
 import { makeParticles, stepParticles } from '../particles.js';
-import { BEDS, LAYERS, weatherSpec, placeSpec, audioSpec, isEnclosed, thunderDelay, nextStrike, specKey, clampVolume } from '../audio.js';
+import { BEDS, LAYERS, weatherSpec, placeSpec, audioSpec, isEnclosed, thunderDelay, nextStrike, specKey, clampVolume, cuesFor } from '../audio.js';
 import { normArt, artKey, getArt, putArt, dropArt, clearArt, artCount, clampCap, placePrompt, portraitPrompt, itemPrompt, itemBrief, ArtQueue, isImagePath } from '../art.js';
 import { perceive, markPerceived, peek, labelOf, withArticle } from '../senses.js';
 import { SENSES, normalizeRoutes, routeOf, shortestPath, capMinutes, worldMinutes, sendNpc, tickTravel, movementHint, spreadRumours } from '../rules.js';
@@ -1261,7 +1261,7 @@ t('audio wiring: the host syncs on refresh, the settings offer it, and versions 
     assert.ok(index.includes('applyAudio(); // sound does not depend on the backdrop mode'), 'sound must not sit behind the backdrop mode');
     assert.ok(/audio: false/.test(index), 'sound is off by default');
     assert.ok(html.includes('id="iw-audio-test"') && html.includes('data-iw-setting="audio"'), 'settings expose the switch and the test');
-    assert.equal(manifest.version, '2.8.0');
+    assert.ok(index.includes(`VERSION = '${manifest.version}'`), 'manifest and index.js must name the same version');
 });
 
 t('audio: a place is a mix of the five textures, and every kind has one', () => {
@@ -1326,7 +1326,36 @@ t('rumours: a fact you were told reaches someone in the same room', () => {
     assert.equal(out.length, 1);
     assert.equal(out[0].from, 'mara');
     assert.equal(out[0].to, 'tom');
-    assert.equal(s.npcs[1].learned[0].via, 'mara', 'marked with who told them');
+    assert.deepEqual(s.npcs[1].heard.map(h => [h.from, h.t]), [['mara', 'Tom owes the guild money']], 'the listener heard it from the teller');
+    assert.equal(s.npcs[1].learned.length, 0, 'it is what Tom was told, never something you learned about Tom');
+    assert.ok(!directorPrompt(s, '', {}, {}).includes('KNOWN tom'), 'and the director is not told you know it of Tom');
+});
+
+t('rumours: the same teller never tells the same thing twice', () => {
+    const s = world();
+    s.npcs[1].locationId = 'market';
+    s.npcs[0].learned = [{ k: 'history', t: 'Tom owes the guild money' }];
+    assert.equal(spreadRumours(s, { seed: 3 }).length, 1);
+    assert.equal(spreadRumours(s, { seed: 4 }).length, 0);
+    assert.equal(s.npcs[1].heard.length, 1);
+});
+
+t('rumours: what a person has heard is capped, newest kept', () => {
+    const s = world();
+    s.npcs[1].locationId = 'market';
+    s.npcs[1].heard = Array.from({ length: 4 }, (_, i) => ({ from: 'mara', k: 'history', t: `old ${i}` }));
+    s.npcs[0].learned = [{ k: 'history', t: 'brand new' }];
+    spreadRumours(s, { seed: 3 });
+    assert.equal(s.npcs[1].heard.length, 4);
+    assert.equal(s.npcs[1].heard.at(-1).t, 'brand new');
+    assert.equal(s.npcs[1].heard[0].t, 'old 1');
+});
+
+t('schema: a 2.7/2.8 chat that stored gossip in learned moves it to heard', () => {
+    const s = normalizeState({ ...world(), npcs: [{ id: 'tom', name: 'Tom', role: 'x', learned: [{ k: 'history', t: 'the ferry sank', via: 'mara' }, { k: 'like', t: 'likes eels' }] }] });
+    assert.deepEqual(s.npcs[0].learned.map(f => f.t), ['likes eels'], 'your dossier keeps only what you learned');
+    assert.deepEqual(s.npcs[0].heard.map(h => [h.from, h.t]), [['mara', 'the ferry sank']]);
+    assert.ok(s.npcs[0].learned.every(f => !('via' in f)));
 });
 
 t('rumours: only things you were told travel, and never twice', () => {
@@ -1354,15 +1383,16 @@ t('rumours: a room with one person says nothing', () => {
     assert.equal(spreadRumours(s, { seed: 1 }).length, 0);
 });
 
-t('senses: standing and who told you', () => {
+t('senses: standing, and what a person was told', () => {
     const s = world();
     s.npcs[0].bond = 3;
-    s.npcs[0].learned = [{ k: 'history', t: 'the ferry sank', at: '08:00', via: 'tom' }];
-    const on = perceive(s, 'senses', { standing: true });
-    const off = perceive(s, 'senses', { standing: false });
+    s.npcs[0].heard = [{ from: 'tom', k: 'history', t: 'the ferry sank' }, { from: 'ghost', k: 'history', t: 'dangling' }];
+    const on = perceive(s, 'senses', { standing: true, rumours: true });
+    const off = perceive(s, 'senses', { standing: false, rumours: false });
     assert.equal(on.people.find(p => p.id === 'mara').bond, 3);
     assert.equal(off.people.find(p => p.id === 'mara').bond, undefined);
-    assert.equal(on.people.find(p => p.id === 'mara').learned[0].from, 'Old Tom');
+    assert.deepEqual(on.people.find(p => p.id === 'mara').heard, [{ name: 'Old Tom', t: 'the ferry sank' }], 'named, dangling teller dropped');
+    assert.deepEqual(off.people.find(p => p.id === 'mara').heard, [], 'off means empty');
 });
 
 t('relations: toward is clamped, sparse, and 0 deletes', () => {
@@ -1374,6 +1404,19 @@ t('relations: toward is clamped, sparse, and 0 deletes', () => {
     assert.equal(again.npcs[0].toward.ghost, 2, 'a patch about one pair must not wipe the rest');
     const cleared = applyPatch(patched, { npcs: [{ id: 'mara', toward: { tom: 0 } }] }, {});
     assert.equal(cleared.npcs[0].toward.tom, undefined, '0 removes the pair');
+});
+
+t('relations: ids are slugged, the newest pairs survive the cap, and nobody is toward themselves', () => {
+    const many = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`p${i}`, 1]));
+    const s = normalizeState({ ...world(), npcs: [{ id: 'mara', name: 'Mara', role: 'x', toward: { 'Old Tom': 2, mara: 3, ...many } }] });
+    const keys = Object.keys(s.npcs[0].toward);
+    assert.equal(keys.length, 8, 'at most eight');
+    assert.deepEqual(keys, ['p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9'], 'newest win');
+    assert.ok(!('mara' in s.npcs[0].toward), 'not toward herself');
+    const named = normalizeState({ ...world(), npcs: [{ id: 'mara', name: 'Mara', role: 'x', toward: { 'Old Tom': 2 } }] });
+    assert.deepEqual(named.npcs[0].toward, { 'old-tom': 2 }, 'a name the model wrote becomes the id it would have');
+    const zeros = normalizeState({ ...world(), npcs: [{ id: 'mara', name: 'Mara', role: 'x', toward: { ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`z${i}`, 0])), tom: 4 } }] });
+    assert.deepEqual(zeros.npcs[0].toward, { tom: 4 }, 'zeros take no slot');
 });
 
 t('relations: the contract asks for toward only when the feature is on', () => {
@@ -1392,6 +1435,16 @@ t('relations: the card gets names, and unknown ids are dropped', () => {
     const off = perceive(s, 'senses', { relations: false }).people.find(p => p.id === 'mara');
     assert.deepEqual(on.toward, [{ name: 'Old Tom', bond: -4 }], 'named, dangling id skipped');
     assert.deepEqual(off.toward, [], 'off means empty');
+});
+
+t('audio: arrival cues only fire on a new tick, never when a chat is just opened', () => {
+    const s = world();
+    s.scene.arrived = ['mara'];
+    s.scene.left = [{ id: 'tom', toward: '' }];
+    assert.deepEqual(cuesFor(s, { fresh: true, events: true }), ['footstep', 'door']);
+    assert.deepEqual(cuesFor(s, { fresh: false, events: true }), [], 'a repaint is not an arrival');
+    assert.deepEqual(cuesFor(s, { fresh: true, events: false }), [], 'one-shots off means silence');
+    assert.deepEqual(cuesFor(null, { fresh: true }), []);
 });
 
 t('people features are switchable in the panel', () => {

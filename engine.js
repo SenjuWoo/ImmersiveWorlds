@@ -1,7 +1,7 @@
 // Pure living-world engine: schema, scene brief, director contract, patch application.
 // No SillyTavern imports, so tests run it under plain node.
 import { normalizeRoutes, shortestPath, capMinutes, sendNpc, tickTravel } from './rules.js';
-import { normLearned, addLearned, CAPS } from './dossier.js';
+import { normLearned, addLearned, CAPS, HEARD_CAP } from './dossier.js';
 import { weatherKind } from './scenery.js';
 
 export const STATE_KEY = 'immersive_worlds_state_v1';
@@ -53,17 +53,26 @@ export const YOU = ['wearing', 'position', 'condition'];
 const int = v => Math.max(0, Math.floor(Number(v)) || 0);
 // How a main person truly stands with {{user}}: -5 hatred, 0 a stranger, +5 devotion. Clamped, never free text.
 const bondOf = v => Math.max(-5, Math.min(5, Math.round(Number(v)) || 0));
-// Sparse and directed: only pairs the story has touched, at most 8 per person, 0 deletes.
-const towardOf = v => {
+// Sparse and directed: only pairs the story has touched, at most 8 per person (the newest win), 0 deletes.
+// Keys are slugged because a model asked for an id will sometimes write a name; nobody is toward themselves.
+// Later maps override earlier ones, so a patch merges per pair without wiping the rest.
+const towardOf = (selfId, ...maps) => {
     const out = {};
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
-        for (const [k, n] of Object.entries(v).slice(0, 8)) {
+    for (const v of maps) {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+        for (const [k, n] of Object.entries(v)) {
+            const id = k ? slug(k, '') : '';
+            if (!id || id === selfId) continue;
+            delete out[id]; // a later word on the same pair replaces it and makes it the newest
             const b = bondOf(n);
-            if (k && b) out[str(k, 60)] = b;
+            if (b) out[id] = b;
         }
     }
-    return out;
+    return Object.fromEntries(Object.entries(out).slice(-8));
 };
+// What a person was told by someone else (gossip). Theirs, not yours: it never enters the dossier or the director's KNOWN line.
+const heardOf = v => (Array.isArray(v) ? v : []).filter(h => h && typeof h === 'object' && str(h.t, 120) && h.from)
+    .map(h => ({ from: str(h.from, 60), k: str(h.k, 20) || 'history', t: str(h.t, 120) })).slice(-HEARD_CAP);
 export const isOpen = thread => !DONE.has(String(thread?.status || '').toLowerCase());
 
 function normRoutine(r) {
@@ -126,8 +135,12 @@ export function normalizeState(input) {
     normalizeRoutes(s.locations);
     s.currentLocationId = slug(s.currentLocationId || s.locations[0].id, 'location');
     if (!ids.has(s.currentLocationId)) s.currentLocationId = s.locations[0].id;
-    s.npcs = list(s.npcs).filter(x => typeof x === 'object').map((x, i) => ({
-        id: slug(x.id || x.name || `npc-${i + 1}`, 'npc'),
+    s.npcs = list(s.npcs).filter(x => typeof x === 'object').map((x, i) => {
+        const id = slug(x.id || x.name || `npc-${i + 1}`, 'npc');
+        // 2.7.0 and 2.8.0 kept gossip in learned with a `via`; it is what they were told, so it moves to `heard`.
+        const told = list(x.learned).filter(f => f && typeof f === 'object' && f.via).map(f => ({ from: f.via, k: f.k, t: f.t }));
+        return {
+        id,
         name: str(x.name, 100) || `Stranger ${i + 1}`,
         role: str(x.role, 160) || 'resident',
         appearance: str(x.appearance, 900),
@@ -136,7 +149,8 @@ export function normalizeState(input) {
         goals: strList(x.goals, 8, 300),
         relationship: str(x.relationship, 500) || 'unknown',
         bond: bondOf(x.bond),
-        toward: towardOf(x.toward),
+        toward: towardOf(id, x.toward),
+        heard: heardOf([...list(x.heard), ...told]),
         locationId: ids.has(slug(x.locationId, '')) ? slug(x.locationId, '') : s.currentLocationId,
         status: str(x.status, 100).toLowerCase() || 'active',
         secrets: strList(x.secrets, 6, 300),
@@ -155,8 +169,9 @@ export function normalizeState(input) {
         travel: x.travel && ids.has(slug(x.travel.to, '')) && Number.isFinite(Number(x.travel.eta)) ? { to: slug(x.travel.to, ''), eta: Number(x.travel.eta) } : null,
         main: typeof x.main === 'boolean' ? x.main : Boolean(x.materializedAvatar), // card characters; everyone else is background
         hidden: str(x.hidden, 200),
-        learned: normLearned(x.learned),
-    }));
+        learned: normLearned(list(x.learned).filter(f => !(f && typeof f === 'object' && f.via))),
+        };
+    });
     for (const n of s.npcs) n.learned = n.learned.slice(-(n.main ? CAPS.main : CAPS.bg));
     s.items = list(s.items).filter(x => typeof x === 'object').map((x, i) => ({
         id: slug(x.id || x.name || `item-${i + 1}`, 'item'),
@@ -441,7 +456,7 @@ function merge(collection, entries, { allowNew = true, defaults = {}, prefix }) 
             const connections = value.connections ? [...new Set([...(existing.connections || []), ...list(value.connections).map(c => slug(c, 'location'))])] : existing.connections;
             const routes = value.routes && typeof value.routes === 'object' ? { ...existing.routes, ...value.routes } : existing.routes;
             // toward is a map of other people, not a field: a patch about one pair must not wipe the rest.
-            const toward = value.toward && typeof value.toward === 'object' ? towardOf({ ...existing.toward, ...value.toward }) : existing.toward;
+            const toward = value.toward && typeof value.toward === 'object' ? towardOf(existing.id, existing.toward, value.toward) : existing.toward;
             Object.assign(existing, value, { id: existing.id }, connections ? { connections } : {}, routes ? { routes } : {}, toward ? { toward } : {});
             touched.push(existing.id);
         } else if (allowNew && (value.name || value.id)) {

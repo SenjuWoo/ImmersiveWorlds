@@ -2,6 +2,8 @@
 
 Status: proposed 2026-10-19 · builds on 2.6.1 · schema v5
 
+> **Correction (2.8.1):** the `learned[]` + `via` design below was wrong. `learned` is what {{user}} learned about a person, so gossip stored there read as a fact about the listener and fed the director's KNOWN line. Rumours are stored as `npc.heard = [{from, k, t}]` (cap 4) and shown as **Told**. Chats with `via` entries migrate on load.
+
 ## Intent
 The world moves and the weather speaks, but nobody *knows* anything. A person's opinion of you is a free-text line the director rewrites, and a fact learned in one conversation never reaches anyone else. Two rules fix that without another model call: a number for how someone stands with you, and facts that travel between people who share a room.
 

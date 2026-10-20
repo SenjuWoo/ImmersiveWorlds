@@ -46,7 +46,7 @@ function soundOf(state, loc) {
 }
 
 /** The HUD's view model. `mode`: senses (default) | nearby | all. */
-export function perceive(state, mode = 'senses', { userName = '', notes = null, standing = true, relations = true } = {}) {
+export function perceive(state, mode = 'senses', { userName = '', notes = null, standing = true, relations = true, rumours = true } = {}) {
     const here = currentLocation(state);
     const all = mode === 'all';
     const present = presentNpcs(state);
@@ -71,7 +71,6 @@ export function perceive(state, mode = 'senses', { userName = '', notes = null, 
             look: n.known || all ? n.look : '', // how you see them; never the sheet's appearance
             learned: mergedFacts(n, notes).slice(-6).map(f => ({
                 k: f.k, t: f.t, own: f.own,
-                from: f.via ? (state.npcs.find(x => x.id === f.via)?.name ?? 'someone') : '',
                 fresh: !f.own && state.scene.fresh.some(x => x.id === n.id && x.t === f.t),
             })),
             bond: standing && n.main ? n.bond : undefined,
@@ -79,6 +78,8 @@ export function perceive(state, mode = 'senses', { userName = '', notes = null, 
             toward: relations ? Object.entries(n.toward ?? {})
                 .map(([id, bond]) => ({ name: state.npcs.find(x => x.id === id)?.name, bond }))
                 .filter(r => r.name) : [],
+            // What they were told by someone else, with the teller named; a teller who no longer resolves is dropped.
+            heard: rumours ? (n.heard ?? []).map(h => ({ name: state.npcs.find(x => x.id === h.from)?.name, t: h.t })).filter(h => h.name) : [],
             isNew: state.scene.arrived.includes(n.id),
             isYou: false,
             ...(truth.length ? { truth } : {}),

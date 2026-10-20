@@ -1,13 +1,20 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-20 · v2.8.0 · branch `main`
+Updated 2026-10-20 · v2.8.1 · branch `main`
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)
 - Sibling extension sharing `kit.js`, `llm.js` and the kit block of `style.css` byte-for-byte: `../ImmersiveAdventures` (private repo). Edit both copies together; `tests/selftest.js` fails if they drift.
-- Last known good: git tag `v2.8.0` / GitHub release zip; previous `v2.7.0`, `v2.6.1`, `v2.6.0`, `v2.4.1`, `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
-- Roadmap: specs in `docs/superpowers/specs/` (weather audio 2.6.0, place audio 2.6.1, standing and rumours 2.7.0 + relations 2.8.0), plans alongside in `docs/superpowers/plans/`. Next: 2.8.1 — "while you were away" (needs a stored last-seen time and a summary line) and hourly routines; then 2.6.2, an opt-in CC0 pack for the only sounds that cannot be synthesised (crowd, voices through a door, music).
+- Last known good: git tag `v2.8.1` / GitHub release zip; previous `v2.8.0`, `v2.7.0`, `v2.6.1`, `v2.6.0`, `v2.4.1`, `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- Roadmap: specs in `docs/superpowers/specs/` (weather audio 2.6.0, place audio 2.6.1, standing and rumours 2.7.0 + relations 2.8.0), plans alongside in `docs/superpowers/plans/`. Next: 2.9.0 — "while you were away" (needs a stored last-seen time and a summary line) and hourly routines; then 2.6.2, an opt-in CC0 pack for the only sounds that cannot be synthesised (crowd, voices through a door, music).
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
+
+## Verified (2026-10-20, 2.8.1 — review of 2.6.0–2.8.0)
+- `npm run lint` 18/18 files parse; `npm test` 134/134; eslint `no-undef` over every module: only browser globals flagged
+- Found in review and fixed test-first: rumours were written into the listener's `learned` (the player's dossier and the director's KNOWN line) with a `via`, so a fact about the teller read as a fact about the listener. Now `npc.heard` (cap 4), shown as **Told**; a v5 state with `via` entries migrates on load. Also: `toward` kept the first eight pairs instead of the newest, took slots for zeros, accepted names and self-references; a chat open played a stale arrival footstep
+- Real SillyTavern 1.19 (isolated, port 8123): the standing bar, dots, **Toward**, **Told** and **Learned** sections render and stay separate; a dangling id is dropped; a thunderstorm fires `#iw-flash` at z-index 900 through the sound path; Test sound and sound-off raise no console errors
+- Pure paths timed on 25 places, 30 people, 40 items: perceive 75 µs, applyPatch 0.46 ms, normalizeState 0.27 ms, director prompt 21 µs. Nothing there needs optimising; the cost is the model call
+- Not verified: a real speaker; rumours or standing reaching the story (neither is in the chat prompt, by design: they are HUD state; only the director sees `bond`/`toward` as a field to write)
 
 ## Verified (2026-10-20, 2.8.0)
 - `npm run lint` 18/18 files parse; `npm test` 129/129

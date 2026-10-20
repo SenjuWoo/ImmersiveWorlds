@@ -345,7 +345,6 @@ button.imx-pill:hover, button.imx-pill:focus-visible { border-color: var(--Smart
 .iw-hud-dot { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: rgb(255 255 255 / .35); }
 .iw-hud-dot.pos { background: #86c9a4; }
 .iw-hud-dot.neg { background: #d98b8b; }
-.iw-hud-from { display: block; font-size: .85em; opacity: .6; margin-top: 2px; }
 .iw-up { color: #86c9a4; }
 .iw-down { color: #d98b8b; }
 .iw-hud-name small { font-weight: 400; opacity: .55; }
