@@ -1,0 +1,9 @@
+{
+  "name": "immersive-worlds",
+  "private": true,
+  "type": "module",
+  "description": "SillyTavern extension: a persistent living world per chat. Tests only; the extension itself has no dependencies and no build step.",
+  "scripts": {
+    "test": "node tests/selftest.js"
+  }
+}
