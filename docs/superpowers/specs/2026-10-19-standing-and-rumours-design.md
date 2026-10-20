@@ -42,7 +42,10 @@ Why those three kinds: `like`, `dislike`, `interest` and `trait` are things you 
 - Room list: a 3 px dot beside each person, same colour scale, hidden in compact mode.
 
 ### Swipe safety
-Rumours run inside the same patch pipeline as everything else and are covered by the existing pre-turn snapshot: a swipe rewinds the spread with the rest of the state. `meta.rumourTick` stops a double spread when the same tick is painted twice.
+Rumours run inside the same patch pipeline as everything else and are covered by the existing pre-turn snapshot: a swipe rewinds the spread with the rest of the state. Seeding by `meta.tick` means the same tick produces the same spread, so re-applying a cached patch does not roll the dice again.
+
+### Relations (2.8.0)
+Directed and sparse: `npc.toward = { otherId: -5..5 }`. Only pairs the story has touched, at most eight per person, and `0` deletes a pair. A patch merges per key, so a scene about one pair cannot wipe the rest. The contract carries `"toward":{"id":-5..5}` only when the switch is on. The card lists them under **Toward** with names; an id that no longer resolves is dropped at render, not at write.
 
 ## Risks
 - `bond` is a number the model must be trusted to write sensibly; a −5 for a mild disagreement would read as a bug. Mitigation: clamp, and never show the raw number, only segments.

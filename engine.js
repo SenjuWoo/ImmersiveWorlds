@@ -53,6 +53,17 @@ export const YOU = ['wearing', 'position', 'condition'];
 const int = v => Math.max(0, Math.floor(Number(v)) || 0);
 // How a main person truly stands with {{user}}: -5 hatred, 0 a stranger, +5 devotion. Clamped, never free text.
 const bondOf = v => Math.max(-5, Math.min(5, Math.round(Number(v)) || 0));
+// Sparse and directed: only pairs the story has touched, at most 8 per person, 0 deletes.
+const towardOf = v => {
+    const out = {};
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+        for (const [k, n] of Object.entries(v).slice(0, 8)) {
+            const b = bondOf(n);
+            if (k && b) out[str(k, 60)] = b;
+        }
+    }
+    return out;
+};
 export const isOpen = thread => !DONE.has(String(thread?.status || '').toLowerCase());
 
 function normRoutine(r) {
@@ -125,6 +136,7 @@ export function normalizeState(input) {
         goals: strList(x.goals, 8, 300),
         relationship: str(x.relationship, 500) || 'unknown',
         bond: bondOf(x.bond),
+        toward: towardOf(x.toward),
         locationId: ids.has(slug(x.locationId, '')) ? slug(x.locationId, '') : s.currentLocationId,
         status: str(x.status, 100).toLowerCase() || 'active',
         secrets: strList(x.secrets, 6, 300),
@@ -309,9 +321,12 @@ State fields only for people HERE. People with a SHEETS line are main; others ar
  * The patch contract for the director. `bond` only exists when standing is on, so a world with the
  * feature switched off pays nothing for it in tokens and the model never invents the field.
  */
-const patchContract = ({ standing = true } = {}) => (standing
-    ? PATCH_BASE.replace('"hidden":"truth {{user}} cannot perceive"}', '"hidden":"truth {{user}} cannot perceive","bond":-5..5')
-    : PATCH_BASE);
+const patchContract = ({ standing = true, relations = true } = {}) => {
+    const extra = [standing && '"bond":-5..5', relations && '"toward":{"id":-5..5}'].filter(Boolean).join(',');
+    return extra
+        ? PATCH_BASE.replace('"hidden":"truth {{user}} cannot perceive"}', `"hidden":"truth {{user}} cannot perceive",${extra}`)
+        : PATCH_BASE;
+};
 
 function budget(detail) {
     return detail === 'maximum' ? 3 : detail === 'high' ? 2 : 1;
@@ -425,7 +440,9 @@ function merge(collection, entries, { allowNew = true, defaults = {}, prefix }) 
         if (existing) {
             const connections = value.connections ? [...new Set([...(existing.connections || []), ...list(value.connections).map(c => slug(c, 'location'))])] : existing.connections;
             const routes = value.routes && typeof value.routes === 'object' ? { ...existing.routes, ...value.routes } : existing.routes;
-            Object.assign(existing, value, { id: existing.id }, connections ? { connections } : {}, routes ? { routes } : {});
+            // toward is a map of other people, not a field: a patch about one pair must not wipe the rest.
+            const toward = value.toward && typeof value.toward === 'object' ? towardOf({ ...existing.toward, ...value.toward }) : existing.toward;
+            Object.assign(existing, value, { id: existing.id }, connections ? { connections } : {}, routes ? { routes } : {}, toward ? { toward } : {});
             touched.push(existing.id);
         } else if (allowNew && (value.name || value.id)) {
             collection.push({ ...defaults, ...value, id, name: value.name || value.id });

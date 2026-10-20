@@ -23,7 +23,7 @@ import { syncAudio, stopAudio, testAudio } from './player.js';
 import { pickSprite, spritesFor, expressionOf, spriteFolder, loadExpressions } from './faces.js';
 import { NOTES_KEY, normNotes, mergedFacts, addNote, removeNote, hideFact } from './dossier.js';
 
-export const VERSION = '2.7.0';
+export const VERSION = '2.8.0';
 const MODULE_ID = 'immersive_worlds';
 const PROMPT_ID = 'IMMERSIVE_WORLDS_STATE';
 const PANEL_ID = 'iw-panel';
@@ -59,6 +59,7 @@ const DEFAULTS = Object.freeze({
     audioPlace: true,
     audioEvents: true,
     standing: true,
+    relations: true,
     rumours: true,
     artCap: 12,
     artPortraits: false,
@@ -121,7 +122,7 @@ function policy() {
     return {
         allowNewCharacters: s.allowNewCharacters, allowNewItems: s.allowNewItems, allowNewLocations: s.allowNewLocations,
         offscreen: s.allowOffscreenEvents, detail: s.simulationDetail, maxNpcs: s.maxNpcs, maxItems: s.maxItems, maxLocations: s.maxLocations,
-        standing: s.standing,
+        standing: s.standing, relations: s.relations,
     };
 }
 
@@ -153,7 +154,7 @@ async function requestHints({ auto = false } = {}) {
     const state = getState();
     if (!state || s.hints === 'off' || hintBusy) return [];
     const mode = REVEAL.includes(s.hudReveal) ? s.hudReveal : 'senses';
-    const view = perceive(state, mode, { userName: ctx().name1, notes: getNotes(), standing: settings().standing });
+    const view = perceive(state, mode, { userName: ctx().name1, notes: getNotes(), standing: settings().standing, relations: settings().relations });
     const last = ctx().chat?.findLast(m => !m.is_system)?.mes ?? '';
     const chatId = ctx().getCurrentChatId();
     const myEpoch = epoch;
@@ -511,7 +512,7 @@ function paintHud(quiet = false) {
     const s = settings();
     const state = getState();
     const mode = REVEAL.includes(s.hudReveal) ? s.hudReveal : 'senses';
-    renderHud(s.enabled && s.hud && state ? perceive(state, mode, { userName: ctx().name1, notes: getNotes(), standing: settings().standing }) : null, { quiet, ideas: currentIdeas() });
+    renderHud(s.enabled && s.hud && state ? perceive(state, mode, { userName: ctx().name1, notes: getNotes(), standing: settings().standing, relations: settings().relations }) : null, { quiet, ideas: currentIdeas() });
 }
 
 function avatarUrl(person) {
@@ -632,7 +633,7 @@ function itemArt(action, id) {
     const store = getArtStore();
     const key = artKey('item', id);
     if (action === 'remove') { dropArt(store, key); return saveArt(); }
-    const view = perceive(state, REVEAL.includes(settings().hudReveal) ? settings().hudReveal : 'senses', { userName: ctx().name1, notes: getNotes(), standing: settings().standing });
+    const view = perceive(state, REVEAL.includes(settings().hudReveal) ? settings().hudReveal : 'senses', { userName: ctx().name1, notes: getNotes(), standing: settings().standing, relations: settings().relations });
     const brief = itemBrief(view, id, i => state.items.find(x => x.id === i)?.description ?? '');
     if (!brief) return;
     const old = getArt(store, key);
@@ -670,7 +671,7 @@ function wantArt() {
         }
         if (s2.artPortraits) {
             // Only people the HUD shows, with no sprite and no avatar, drawn from how you see them (never the sheet's appearance).
-            for (const p of perceive(state, REVEAL.includes(s2.hudReveal) ? s2.hudReveal : 'senses', { userName: ctx().name1, notes: getNotes(), standing: settings().standing }).people) {
+            for (const p of perceive(state, REVEAL.includes(s2.hudReveal) ? s2.hudReveal : 'senses', { userName: ctx().name1, notes: getNotes(), standing: settings().standing, relations: settings().relations }).people) {
                 const key = artKey('person', p.id);
                 if (p.isYou || getArt(getArtStore(), key) || failedKeys.has(key) || p.avatar || spriteUrl(p)) continue;
                 log('art wanted', key, q.enqueue({ key, kind: 'person', size: [512, 768], prompt: portraitPrompt({ label: p.label, look: p.look, tags: p.tags }) }));

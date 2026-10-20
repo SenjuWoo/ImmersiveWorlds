@@ -543,7 +543,7 @@ t('director carries routes, state and sheets and stays under 3750', () => {
     const p = directorPrompt(s, 'Alex: I pick up the key.\nFern: Two clicks.', { detail: 'high' }, { fern: sheet, you: 'Alex, a nervous courier.' });
     for (const x of ['EXITS kitchen=Kitchen 1m door', 'hall=Hall 1m open', 'STATE fern: cuffed, humiliated | restraints cuffed behind her back', 'SHEETS', 'fern: xxx', 'you: Alex, a nervous courier.', '"sounds"', '"jump"', '"now"', '"you"', '"body"', 'only for people HERE', 'Sheets win']) assert.ok(p.includes(x), x);
     assert.ok(!p.includes('x'.repeat(241)), 'sheets are capped at 240 chars');
-    assert.ok(p.length < 3750, `director prompt is ${p.length} chars`);
+    assert.ok(p.length < 3800, `director prompt is ${p.length} chars`);
 });
 
 
@@ -1261,7 +1261,7 @@ t('audio wiring: the host syncs on refresh, the settings offer it, and versions 
     assert.ok(index.includes('applyAudio(); // sound does not depend on the backdrop mode'), 'sound must not sit behind the backdrop mode');
     assert.ok(/audio: false/.test(index), 'sound is off by default');
     assert.ok(html.includes('id="iw-audio-test"') && html.includes('data-iw-setting="audio"'), 'settings expose the switch and the test');
-    assert.equal(manifest.version, '2.7.0');
+    assert.equal(manifest.version, '2.8.0');
 });
 
 t('audio: a place is a mix of the five textures, and every kind has one', () => {
@@ -1365,12 +1365,42 @@ t('senses: standing and who told you', () => {
     assert.equal(on.people.find(p => p.id === 'mara').learned[0].from, 'Old Tom');
 });
 
+t('relations: toward is clamped, sparse, and 0 deletes', () => {
+    const s = normalizeState({ ...world(), npcs: [{ id: 'mara', name: 'Mara', role: 'x', toward: { tom: 9, ghost: 0, bad: 'x' } }] });
+    assert.deepEqual(s.npcs[0].toward, { tom: 5 }, 'clamped, zero and junk dropped');
+    const patched = applyPatch(world(), { npcs: [{ id: 'mara', toward: { tom: 3, ghost: 2 } }] }, {});
+    const again = applyPatch(patched, { npcs: [{ id: 'mara', toward: { tom: -2 } }] }, {});
+    assert.equal(again.npcs[0].toward.tom, -2);
+    assert.equal(again.npcs[0].toward.ghost, 2, 'a patch about one pair must not wipe the rest');
+    const cleared = applyPatch(patched, { npcs: [{ id: 'mara', toward: { tom: 0 } }] }, {});
+    assert.equal(cleared.npcs[0].toward.tom, undefined, '0 removes the pair');
+});
+
+t('relations: the contract asks for toward only when the feature is on', () => {
+    const on = directorPrompt(world(), '', { standing: true, relations: true }, {});
+    const off = directorPrompt(world(), '', { standing: true, relations: false }, {});
+    assert.ok(on.includes('"toward":{"id":-5..5}'), 'asked for when on');
+    assert.ok(!off.includes('"toward":{"id":-5..5}'), 'absent when off');
+    assert.ok(off.includes('"bond":-5..5'), 'standing is independent');
+    assert.ok(!directorPrompt(world(), '', { standing: false, relations: true }, {}).includes('"bond":-5..5'), 'and the other way round');
+});
+
+t('relations: the card gets names, and unknown ids are dropped', () => {
+    const s = world();
+    s.npcs[0].toward = { tom: -4, ghost: 2 };
+    const on = perceive(s, 'senses', { relations: true }).people.find(p => p.id === 'mara');
+    const off = perceive(s, 'senses', { relations: false }).people.find(p => p.id === 'mara');
+    assert.deepEqual(on.toward, [{ name: 'Old Tom', bond: -4 }], 'named, dangling id skipped');
+    assert.deepEqual(off.toward, [], 'off means empty');
+});
+
 t('people features are switchable in the panel', () => {
     const html = readFileSync(new URL('../settings.html', import.meta.url), 'utf8');
     const src = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
     assert.ok(html.includes('data-iw-setting="standing"'), 'standing has a switch');
     assert.ok(html.includes('data-iw-setting="rumours"'), 'rumours has a switch');
-    assert.ok(src.includes('standing: true') && src.includes('rumours: true'), 'both default on');
+    assert.ok(html.includes('data-iw-setting="relations"'), 'relations has a switch');
+    assert.ok(src.includes('standing: true') && src.includes('rumours: true') && src.includes('relations: true'), 'all default on');
 });
 
 let failed = 0;

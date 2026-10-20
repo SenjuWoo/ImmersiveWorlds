@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ee6c5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.7.0"><img src="https://img.shields.io/badge/release-v2.7.0-8f9aa6?labelColor=0d0f11" alt="v2.7.0"></a>
+  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.8.0"><img src="https://img.shields.io/badge/release-v2.8.0-8f9aa6?labelColor=0d0f11" alt="v2.8.0"></a>
   <img src="https://img.shields.io/badge/SillyTavern-%E2%89%A5%201.18.0-8f9aa6?labelColor=0d0f11" alt="SillyTavern 1.18+">
 </p>
 
@@ -133,6 +133,7 @@ The scene brief sits at depth 1 (`In-chat @ depth`), so everything above it, inc
 | One-shots | on | Birds, drips, creaks, footsteps, doors, coins, chairs and pages, at most one every 700 ms |
 | Standing bar | on | A person's true feeling for you, −5…+5, as a bar in their card and a dot in the room list. Off removes the field from the director prompt entirely |
 | Rumours | on | People who share a room pass on what they were told, at most one fact per room per tick, marked *heard from…* |
+| Who thinks what of whom | on | A person's opinion of another person, −5…+5, listed under **Toward** in their card. Off removes the field from the prompt |
 | Scene backdrop → Generated picture | off | A generated picture of the place, day and night (needs an image backend); the painted scene shows until it is ready |
 | Most pictures per chat | 12 | Cap on generated pictures (4–40) |
 | Offer a Draw button on item cards | off | Item pictures, only when you press it |
@@ -197,6 +198,7 @@ Verified:
 - 2.4.1 end-to-end in an isolated SillyTavern 1.19.0 against a stub `/imagine`: a place picture is drawn on first visit and cached, day and night get one each (dawn shares day, dusk shares night), travelling away mid-draw lands the picture under its own place, a chat switch drops a late result, two failures in a row give one toast and pause, Test resumes, the cap and Clear work, portraits use the look (never the sheet's appearance), item pictures draw, redraw and remove on request. **Not run against a real image backend**
 - Reload persistence of the world and the HUD; Forge, Make card and swipe browsing were verified in 2.0.0 (their host code did not change; not re-run this round)
 
+- 2.8.0: `npm test` 129/129; `toward` clamps, drops zeros and junk, merges per key (a patch about one pair leaves the others), `0` deletes, the contract carries it only when the switch is on, and the card view names the ids and drops dangling ones. **Not visually verified**, same host-module reason as 2.7.0
 - 2.7.0: `npm test` 126/126; schema v5 migration, `bond` clamping, the prompt carrying `"bond"` only when the switch is on, and the rumour rules (same room only, `history`/`bond`/`promise` only, never twice, same tick same gossip). **The HUD bar and the *heard from* line are not visually verified** — `hud.js` imports SillyTavern's own modules, so a standalone browser probe drags in the whole app; the data reaching it is tested, the markup is not
 - 2.6.1: `npm test` 118/118; the place bed driven in headless Edge with every gain node recorded — a tavern mixes fire 0.115 and room 0.127 at volume 0.6, a harbour mixes water 0.196 and hum 0.029, turning place sounds off ramps all five layers to zero, twenty identical repaints add no nodes, and a `drip` cue builds its two oscillators on the spot. **Not heard through a speaker** (headless has no audio device) and **not yet run inside SillyTavern itself**
 - 2.6.0: `node tests/selftest.js` 114/114 and `node --check` on every file; the audio graph driven for real in headless Edge (the extension's own `audio.js`/`player.js`/`backdrop.js` loaded over HTTP with every gain node recorded): a storm bed reaches its gain and holds it, twenty identical repaints create no new nodes, clear weather ramps back to silence, indoors is measurably quieter than the same rain outdoors (0.053 vs 0.133), the flash layer exists at z-index 900 and animates, and `prefers-reduced-motion` stops the flash being created at all. **Not verified against a real speaker** (headless has no output device) and **not yet run inside SillyTavern itself**

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.8.0 — 2026-10-20
+
+Who thinks what of whom. Schema stays v5.
+
+- **Relations**: each person carries a sparse, directed `toward` map — what they think of another person, −5 to +5, only for pairs the story has touched (eight at most). A patch about one pair merges into the map instead of replacing it, and `0` deletes a pair. Shown as a **Toward** list in the person card.
+- Third switch under **People**. Off means the field never enters the prompt, exactly like standing.
+- For group chats: two characters in the same room now have an opinion of each other that survives the scene.
+- Tests: 129.
+
 ## 2.7.0 — 2026-10-20
 
 People who remember and talk. Schema v5.

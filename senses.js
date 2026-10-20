@@ -46,7 +46,7 @@ function soundOf(state, loc) {
 }
 
 /** The HUD's view model. `mode`: senses (default) | nearby | all. */
-export function perceive(state, mode = 'senses', { userName = '', notes = null, standing = true } = {}) {
+export function perceive(state, mode = 'senses', { userName = '', notes = null, standing = true, relations = true } = {}) {
     const here = currentLocation(state);
     const all = mode === 'all';
     const present = presentNpcs(state);
@@ -75,6 +75,10 @@ export function perceive(state, mode = 'senses', { userName = '', notes = null, 
                 fresh: !f.own && state.scene.fresh.some(x => x.id === n.id && x.t === f.t),
             })),
             bond: standing && n.main ? n.bond : undefined,
+            // Directed and sparse: what this person thinks of the others, named, dangling ids dropped.
+            toward: relations ? Object.entries(n.toward ?? {})
+                .map(([id, bond]) => ({ name: state.npcs.find(x => x.id === id)?.name, bond }))
+                .filter(r => r.name) : [],
             isNew: state.scene.arrived.includes(n.id),
             isYou: false,
             ...(truth.length ? { truth } : {}),

@@ -156,8 +156,9 @@ function cardHtml(p) {
         ? `<div class="iw-hud-bond ${p.bond > 0 ? 'pos' : p.bond < 0 ? 'neg' : ''}" role="img" aria-label="standing ${p.bond} of 5" title="Standing ${p.bond > 0 ? '+' : ''}${p.bond} of 5"><span style="width:${Math.abs(p.bond) / 5 * 100}%"></span></div>`
         : '';
     const learned = p.learned?.length ? `<div class="iw-hud-sec">Learned</div>${p.learned.map(f => `<div class="iw-hud-fact ${f.fresh ? 'is-fresh' : ''}"><i class="fa-solid ${KIND_ICON[f.k] ?? KIND_ICON.other}"></i><span>${esc(f.t)}</span>${f.from ? `<small class="iw-hud-from">heard from ${esc(f.from)}</small>` : ''}</div>`).join('')}` : '';
+    const toward = p.toward?.length ? `<div class="iw-hud-sec">Toward</div>${p.toward.map(r => `<div class="iw-hud-row"><b>${esc(r.name)}</b><span class="${r.bond > 0 ? 'iw-up' : 'iw-down'}">${r.bond > 0 ? '+' : ''}${r.bond}</span></div>`).join('')}` : '';
     const edit = p.isYou ? '' : `<div class="iw-hud-edit"><button type="button" data-iw-dossier="${esc(p.id)}"><i class="fa-solid fa-book-open"></i>Dossier</button></div>`;
-    const html = bond + rows('Body', p.body) + rows('Mind', p.mind) + rows('Has', has) + learned + rows('Truth', truth);
+    const html = bond + rows('Body', p.body) + rows('Mind', p.mind) + rows('Has', has) + toward + learned + rows('Truth', truth);
     return html ? `<div class="iw-hud-card">${html}${edit}</div>` : '';
 }
 

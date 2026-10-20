@@ -1,13 +1,20 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-20 · v2.7.0 · branch `main`
+Updated 2026-10-20 · v2.8.0 · branch `main`
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)
 - Sibling extension sharing `kit.js`, `llm.js` and the kit block of `style.css` byte-for-byte: `../ImmersiveAdventures` (private repo). Edit both copies together; `tests/selftest.js` fails if they drift.
-- Last known good: git tag `v2.7.0` / GitHub release zip; previous `v2.6.1`, `v2.6.0`, `v2.4.1`, `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
-- Roadmap: specs in `docs/superpowers/specs/` (weather audio 2.6.0, place audio 2.6.1, standing and rumours 2.7.0), plans alongside in `docs/superpowers/plans/`. Next: 2.7.1 — "while you were away" (needs a stored last-seen time and a summary line) and hourly routines; then 2.6.2, an opt-in CC0 pack for the only sounds that cannot be synthesised (crowd, voices through a door, music). The 2.7.0 spec was written as "2.5.0"; it shipped as 2.7.0 because SillyTavern compares versions and 2.5.0 would have looked like a downgrade.
+- Last known good: git tag `v2.8.0` / GitHub release zip; previous `v2.7.0`, `v2.6.1`, `v2.6.0`, `v2.4.1`, `v2.4.0`, `v2.3.0`, `v2.2.0`, `v2.1.0`, `v2.0.0`, then `v1.3.0` (1.5.0 was never tagged).
+- Roadmap: specs in `docs/superpowers/specs/` (weather audio 2.6.0, place audio 2.6.1, standing and rumours 2.7.0 + relations 2.8.0), plans alongside in `docs/superpowers/plans/`. Next: 2.8.1 — "while you were away" (needs a stored last-seen time and a summary line) and hourly routines; then 2.6.2, an opt-in CC0 pack for the only sounds that cannot be synthesised (crowd, voices through a door, music).
 - 2.1.0 design and plan: `docs/superpowers/specs/2026-10-12-immersive-hud-design.md` (+ mockup), `docs/superpowers/plans/2026-10-12-immersive-hud.md`.
+
+## Verified (2026-10-20, 2.8.0)
+- `npm run lint` 18/18 files parse; `npm test` 129/129
+- `toward` clamps to −5..5, drops zeros and junk, caps at 8 pairs, merges per key so one scene cannot wipe the rest, and `0` deletes
+- The contract carries `"toward":{"id":-5..5}` only when the switch is on, independently of `"bond"`
+- The card view resolves ids to names and drops dangling ones
+- Not verified: the **Toward** list has never been rendered (same host-module problem as 2.7.0)
 
 ## Verified (2026-10-20, 2.7.0)
 - `npm run lint` 18/18 files parse; `npm test` 126/126
