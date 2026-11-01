@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ee6c5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/tag/v2.8.1"><img src="https://img.shields.io/badge/release-v2.8.1-8f9aa6?labelColor=0d0f11" alt="v2.8.1"></a>
+  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/latest"><img src="https://img.shields.io/github/v/release/SenjuWoo/ImmersiveWorlds?label=release&color=8f9aa6" alt="latest release"></a>
   <img src="https://img.shields.io/badge/SillyTavern-%E2%89%A5%201.18.0-8f9aa6?labelColor=0d0f11" alt="SillyTavern 1.18+">
 </p>
 
