@@ -19,7 +19,8 @@ export function slug(value, prefix = 'id') {
         .replace(/[̀-ͯ]/g, '')
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
+        .replace(/^-+/, '')
+        .replace(/-+$/, '')
         .slice(0, 42);
     return cleaned || `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
