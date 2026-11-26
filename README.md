@@ -138,7 +138,7 @@ npm run lint    # every module parses
 
 ![Terminal: node tests/selftest.js ends with rumours, senses, relations and audio checks and 134/134 passed; node tests/lint.mjs reports 18/18 files parse](docs/presentation/screenshot-tests.png)
 
-CI runs both on every push. Each release was also checked end to end in an isolated SillyTavern 1.19 against a mock model; what that covered, release by release, is in [docs/status.md](docs/status.md).
+CI runs both on every push. Releases 2.0 to 2.4.1 were also checked end to end in an isolated SillyTavern 1.19 against a mock model, and 2.8.1 rendered the standing bar, **Toward** and **Told** there. The 2.6 sound releases were measured in headless Edge rather than inside SillyTavern, and the 2.7.0 and 2.8.0 markup was not rendered when they shipped. What each release covered is in [docs/status.md](docs/status.md).
 
 Not claimed:
 
