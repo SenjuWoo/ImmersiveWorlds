@@ -1,40 +1,24 @@
-<p align="center">
-  <img src="assets/mark.svg" width="72" height="72" alt="Immersive Worlds mark">
-</p>
+<div align="center">
 
-<h1 align="center">Immersive Worlds</h1>
+![Immersive Worlds: a teal city-and-clock mark beside the tagline 'A SillyTavern extension that gives a chat a city that keeps living between messages', with chips for the immersion HUD, the background director, swipe safety and only what you sense](docs/presentation/hero.png)
 
-<p align="center"><strong>A city that keeps living between messages.</strong></p>
+[![CI](https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg)](https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/SenjuWoo/ImmersiveWorlds?label=release&color=2ee6c5&labelColor=0d0f11)](https://github.com/SenjuWoo/ImmersiveWorlds/releases/latest)
+[![SillyTavern](https://img.shields.io/badge/SillyTavern-%E2%89%A5%201.18.0-8f9aa6?labelColor=0d0f11)](manifest.json)
+[![Dependencies](https://img.shields.io/badge/runtime%20deps-none-8f9aa6?labelColor=0d0f11)](package.json)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2ee6c5?labelColor=0d0f11)](LICENSE)
 
-<p align="center">
-  SillyTavern extension that gives a chat a persistent world:<br>
-  clock, weather, places, people with routines, items, factions and open threads.
-</p>
+**[Install](#install)** · **[Usage](#usage)** · **[Commands](#commands-and-macros)** · **[How it works](#how-it-works)** · **[Settings](docs/settings.md)** · **[Status](#honest-status)** · **[Changelog](CHANGELOG.md)**
 
-<p align="center">
-  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/ImmersiveWorlds/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ee6c5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/ImmersiveWorlds/releases/latest"><img src="https://img.shields.io/github/v/release/SenjuWoo/ImmersiveWorlds?label=release&color=8f9aa6" alt="latest release"></a>
-  <img src="https://img.shields.io/badge/SillyTavern-%E2%89%A5%201.18.0-8f9aa6?labelColor=0d0f11" alt="SillyTavern 1.18+">
-</p>
+</div>
 
-<p align="center">
-  <a href="#install">Install</a>
-  ·
-  <a href="#usage">Usage</a>
-  ·
-  <a href="#token-cost">Token cost</a>
-  ·
-  <a href="#settings">Settings</a>
-  ·
-  <a href="#honest-status">Status</a>
-</p>
-
-## Why it exists
+**A city that keeps living between messages.**
 
 A lorebook is a dump. A roleplay city is a simulation: time passes, weather shifts, people have jobs and routines, a shop exists once you mention it, and the next reply already knows the street you are standing on.
 
-Immersive Worlds keeps that state in the chat and gives the model a short scene brief each turn. It never writes your character's words, thoughts or choices.
+Immersive Worlds is a SillyTavern extension that keeps that state in the chat — clock, weather, places, people with routines, items, factions and open threads — and gives the model a short scene brief each turn. It never writes your character's words, thoughts or choices.
+
+![SillyTavern with Immersive Worlds running a rainy harbour-town world at dusk: the scene card top-left reads The Drowned Lantern, day 3, 19:40, rain, with open threads; the people column top-right shows Seraphina with her tags and the hover card listing body, mind, what she holds, two learned facts and a standing bar; items bottom-left; a map of the Back Room, Market Square and Harbour Row bottom-right, with rain falling over the backdrop](docs/presentation/hud-person-card.png)
 
 ## What you get
 
@@ -54,6 +38,7 @@ Immersive Worlds keeps that state in the chat and gives the model a short scene 
 - **Generated pictures** (opt in, needs an image backend set up in SillyTavern's Image Generation extension): a picture of the place you are in, one for day and one for night (drawn the first time you are there; weather is drawn over it), portraits for people who have no picture of their own, and item pictures on request. One picture at a time, a per-chat cap, a Test button, and nothing is drawn from anything you have not seen
 - **Background director** after each reply: clock, weather, ambient line, who moved where, new people/places/items the scene implied, chronicle notes
 - **Routines** (dawn / day / dusk / night): people move with the clock, even off-screen
+- **Standing, rumours and relations**: a person's true feeling for you as a bar in their card, gossip passed on between people in the same room (shown as **Told**, never added to your dossier), and who thinks what of whom (**Toward**); each one switchable
 - **Swipe-, regenerate- and delete-safe**: every reply caches its own world patch, so browsing swipes re-applies the right state with no extra call, and deleting a reply rewinds the world
 - Panel in SillyTavern's own style (MovingUI, theme colours, wand menu): World, People, Items, History, Manage
 - **Status strip** above the chat input (day, time, weather, place) and the scene backdrop's time-of-day grade
@@ -63,9 +48,11 @@ Immersive Worlds keeps that state in the chat and gives the model a short scene 
 
 Built for adults. Any resemblance to real persons or places is coincidental.
 
+![The Immersive Worlds panel on the People tab: Seraphina, Bram and Marta here now in The Drowned Lantern, Hollis on Harbour Row and Sister Ione at the Old Temple elsewhere, each with Inspect, Dossier and Make card buttons, beside the same HUD](docs/presentation/panel-people.png)
+
 ## Install
 
-Requirements: **SillyTavern ≥ 1.18.0** (tested on 1.19.0) and any API SillyTavern already speaks.
+Requirements: **SillyTavern ≥ 1.18.0** (tested on 1.19) and any API SillyTavern already speaks.
 
 **Extensions → Install extension** → `https://github.com/SenjuWoo/ImmersiveWorlds`
 
@@ -75,6 +62,8 @@ or
 cd SillyTavern/public/scripts/extensions/third-party
 git clone https://github.com/SenjuWoo/ImmersiveWorlds.git
 ```
+
+A zip of each version is on the [releases page](https://github.com/SenjuWoo/ImmersiveWorlds/releases); unzip it into the same `third-party` folder.
 
 Optional companion: [Immersive Adventures](https://github.com/SenjuWoo/ImmersiveAdventures) (RPG rules, combat, inventory). When both run, the world owns time and place and the adventure owns the hero.
 
@@ -88,6 +77,10 @@ Optional companion: [Immersive Adventures](https://github.com/SenjuWoo/Immersive
 
 The HUD needs free space beside the chat (wide windows, or a narrower Chat Width in User Settings). With little space it shrinks to faces and icons; on phones it steps aside for the status strip and panel. A side hides while SillyTavern's drawer on that side is open.
 
+![The HUD without the panel: the scene card with day 3, dusk, 19:40, rain and Marta buying a round; Seraphina, you, Bram and Marta with their state tags and your own body card; a Storm Lantern on you and a Rusty Key here; the local map with walking times](docs/presentation/hud-tavern.png)
+
+## Commands and macros
+
 | Command | Does |
 | --- | --- |
 | `/iw` | open the panel |
@@ -99,7 +92,26 @@ The HUD needs free space beside the chat (wide windows, or a narrower Chat Width
 
 Macros: `{{iwTime}}` `{{iwDay}}` `{{iwWeather}}` `{{iwLocation}}` `{{iwScene}}`.
 
-## Token cost
+Every setting, with its default: [docs/settings.md](docs/settings.md). **Extensions → Immersive Worlds** holds them all; the panel's Manage tab has the two most-used toggles.
+
+## How it works
+
+```mermaid
+flowchart LR
+  REPLY["AI reply"] --> DIR["background director (your chosen model)"]
+  DIR -->|"JSON patch"| RULES["rules.js: paths, walking time, time caps, creation only where the story is"]
+  RULES --> STATE[("world state in chat metadata")]
+  STATE --> SENSES["senses.js: only what your character perceives"]
+  SENSES --> HUD["HUD, panel, backdrop, sound"]
+  STATE --> BRIEF["scene brief at depth 1"]
+  BRIEF --> NEXT["next prompt"]
+```
+
+- **The model narrates; code keeps the world.** The director proposes a patch; `engine.js` and `rules.js` apply it under the rules and reject moves the paths do not allow.
+- **Swipe safety**: a pre-turn snapshot plus a per-message cached patch, mirrored into the swipe, so browsing swipes costs no call and a delete rewinds.
+- **Pure modules are tested in Node**; the host (`index.js`, `hud.js`) talks to SillyTavern. Module list: [docs/architecture.md](docs/architecture.md).
+
+### Token cost
 
 Measured against v1.5.0 on the same world:
 
@@ -113,96 +125,20 @@ Measured against v1.5.0 on the same world:
 
 The scene brief sits at depth 1 (`In-chat @ depth`), so everything above it, including the whole chat history, stays prompt-cacheable.
 
-## Settings
+### Log
 
-**Extensions → Immersive Worlds.** The panel's Manage tab has the two most-used toggles.
-
-| Setting | Default | What it does |
-| --- | --- | --- |
-| Enabled | on | Master switch |
-| Update after each reply | on | Background director after every AI reply |
-| Run every | reply | Director every N replies |
-| Never write the user's words… | on | Agency line in the scene brief |
-| Show time and place above the chat input | on | Status strip |
-| Scene backdrop | Time-of-day grade | *Off* (your own background untouched), *grade only*, or *Painted scene* for the place you are in |
-| Weather particles | on | Rain, snow, fog, dust; stops under reduced motion |
-| Weather you can hear | off | The synthesised weather bed and thunder; silent while the tab is in the background |
-| Volume | 60 | Master volume for the weather bed and thunder |
-| Thunder, with a flash of lightning | on | The screen flashes and the clap follows 0.4–4 s later; no flash under reduced motion |
-| Place sounds | on | Water, fire, room tone, leaves and a distant hum, mixed per place kind |
-| One-shots | on | Birds, drips, creaks, footsteps, doors, coins, chairs and pages, at most one every 700 ms |
-| Standing bar | on | A person's true feeling for you, −5…+5, as a bar in their card and a dot in the room list. Off removes the field from the director prompt entirely |
-| Rumours | on | People who share a room pass on what they were told, at most one fact per room per tick, shown as **Told** in the listener's card with the teller named; never added to your own dossier |
-| Who thinks what of whom | on | A person's opinion of another person, −5…+5, listed under **Toward** in their card. Off removes the field from the prompt |
-| Scene backdrop → Generated picture | off | A generated picture of the place, day and night (needs an image backend); the painted scene shows until it is ready |
-| Most pictures per chat | 12 | Cap on generated pictures (4–40) |
-| Offer a Draw button on item cards | off | Item pictures, only when you press it |
-| Draw portraits for people with no picture | off | Only people the HUD shows, from how you see them |
-| Test image generation / Clear generated art | | Draws one small picture to prove the backend works; forgets this chat's pictures (files stay on disk) |
-| Show the HUD | on | The floating HUD beside the chat (the status strip hides while it shows) |
-| What the HUD reveals | Only what I sense | Or *Everything nearby*, or *Everything* (real names, hidden truths, secrets) |
-| Background model | Current connection | Current connection, a connection profile, or *Pick a model* |
-| Send it to / Model | OpenRouter | With *Pick a model*: OpenRouter (uses the OpenRouter key saved in SillyTavern; live list with prices) or the current connection with a model name you type (local backends) |
-| Ideas button | On request | On request, after every update, or off |
-| Style | Actions | Ideas as clickable first-person actions, or gentle nudges |
-| Use expression sprites as faces | on | Character sprites when available |
-| Skip model reasoning | on | Reasoning off for world updates (faster, cheaper) |
-| Pause the director if the API rejects its request | on | Stops retry storms on providers that refuse the call |
-| Growth | Lively | How much new content each pass may add |
-| New people / items / places / off-screen events | on | Creation switches |
-| Update tokens / World-build tokens | 1200 / 3000 | Response budgets |
-| Temperature | 0.4 | Background-call temperature (Forge uses at least 0.8) |
-| Prompt depth | 1 | Chat depth of the scene brief |
-| Debug log | off | Verbose log in the browser console |
-
-## Log
-
-The browser console (F12 → Console) always shows `[Immersive Worlds] v2.6.1 ready` and every failure with its cause. Turn on **Debug log** in the settings for the resolved settings at startup, every director pass, and every move or change the world rules rejected (with the reason); it logs at the *Verbose* level, so enable that level in the console filter.
-
-## Project map
-
-```text
-manifest.json   SillyTavern manifest (loading_order 6, activate hook)
-index.js        host: settings, per-chat world, injection, director pipeline, panel, commands, macros
-engine.js       pure world model: schema, patching under the rules, scene brief, prompts
-rules.js        pure: paths with walking time and openness, shortest routes, time caps, people in transit, rumours
-senses.js       pure: what the user's character perceives (the HUD's view), Peek
-hud.js          the floating HUD
-llm.js          background calls (profile / OpenRouter model / current connection → generateRaw), JSON parsing
-models.js       OpenRouter model list, reasoning-effort fallback, error wording (identical in Immersive Adventures)
-dossier.js      what you learned about each person, your notes and removals
-hints.js        the Ideas prompt and a filter that keeps only ideas resting on things you can see
-faces.js        sprite, avatar or monogram faces
-scenery.js      pure: place kind from free text, sky palette per time and weather, particle spec
-backdrop.js     the backdrop layer: grade, painted scene, skyline drawings
-particles.js    the weather canvas (rain, snow, fog, dust)
-audio.js        pure: weather kind + place kind -> gains and filter cutoffs, thunder timing
-player.js       the weather you can hear: one AudioContext, noise and filters, parameter ramps
-art.js          pure: picture store, safe prompts, one-at-a-time queue (the image call itself is in index.js)
-kit.js          shared panel kit (identical in Immersive Adventures)
-settings.html   settings drawer
-style.css       shared kit block + backdrop + particles + HUD
-tests/          node tests/selftest.js · npm run lint (parse gate)
-```
-
-State lives in chat metadata key `immersive_worlds_state_v1`; your dossier notes and removals live in `immersive_worlds_notes_v1`. Worlds from 1.x, 2.0, 2.1 and 2.2 load unchanged.
+The browser console (F12 → Console) always shows `[Immersive Worlds] v<version> ready` and every failure with its cause. Turn on **Debug log** in the settings for the resolved settings at startup, every director pass, and every move or change the world rules rejected (with the reason); it logs at the *Verbose* level, so enable that level in the console filter.
 
 ## Honest status
 
-Verified:
+```bash
+npm test        # node tests/selftest.js: the pure world model
+npm run lint    # every module parses
+```
 
-- `node tests/selftest.js` — 105 tests (new in 2.4.1: picture paths with any name (apostrophes, accents, kana), prompts stripped of anything the command parser could run, art store, safe prompts that carry no weather, pipe or macro, the picture queue (one at a time, cap, pause after two failures, reset drops late results), `look` set once and shown only for people you know, item pictures only for what you hold or see; new in 2.4: free-text weather wording, type-before-name place kinds, weather in the painted scene, place kinds from free text, sky and particle rules, backdrop settings migration, skyline drawings, particle maths, scene art in the HUD view without any place description; new in 2.3: dossier rules and caps, a nested dossier list that cannot wipe it, deletions that survive the director rephrasing, notes that survive a rewind, perceived dossier without hidden truth, ideas that never leak and are filtered to known things, faces, model list and reasoning fallback): paths and walking time, rejected moves, user-chosen moves the director cannot undo, movement detection, people in transit, time caps, creation only where the story is, main vs background people, perceived state and hidden truth, state only for people present, perception per path openness and reveal mode, names and threads hidden until known, Peek, migration, prompt sizes
-- End-to-end in an isolated SillyTavern 1.19.0 against a mock model: HUD in all four corners at 1920, 1600, 1500 and 1280 px; hover cards; arrival glow and toast; a heard room, Peek and Go; a two-hop move charged its walking time; a bogus move rejected and logged; a person walking in over time; a drawer hiding its side; reveal modes; delete rewinding the HUD; no unknown name or secret in the default HUD; world note ~590 chars, director ~3,100 chars
-- 2.3.0 end-to-end in an isolated SillyTavern 1.19.0 against a mock model: facts learned from a reply appear in the card with a "learned" toast; a note and a removed fact stay put while swiping back and forth (the swiped reply's facts come and go); Ideas lists only ideas resting on known things and a click fills the message box without sending; the model override reaches the connection; the live OpenRouter list (463 models, DeepSeek V4.1 Flash pinned first) fills the picker; an OpenRouter call without a key reads as a plain instruction; settings drawer; phone width
-- 2.4.0 end-to-end in an isolated SillyTavern 1.19.0: backdrop in all four time slots with clear, rain, snow, fog and storm over harbor, city, tavern and interior places; mode switch grade/painted/off (the layer hides and the particle canvas is removed); particles on and off; the HUD strip at full width and hidden when compact; phone width (no horizontal scroll, HUD steps aside); no console errors. Painted scenes are hand-drawn silhouettes, not generated pictures
-- 2.4.1 end-to-end in an isolated SillyTavern 1.19.0 against a stub `/imagine`: a place picture is drawn on first visit and cached, day and night get one each (dawn shares day, dusk shares night), travelling away mid-draw lands the picture under its own place, a chat switch drops a late result, two failures in a row give one toast and pause, Test resumes, the cap and Clear work, portraits use the look (never the sheet's appearance), item pictures draw, redraw and remove on request. **Not run against a real image backend**
-- Reload persistence of the world and the HUD; Forge, Make card and swipe browsing were verified in 2.0.0 (their host code did not change; not re-run this round)
+![Terminal: node tests/selftest.js ends with rumours, senses, relations and audio checks and 134/134 passed; node tests/lint.mjs reports 18/18 files parse](docs/presentation/screenshot-tests.png)
 
-- 2.8.1: `npm test` 134/134; rumours are stored as what the listener heard (a 2.7/2.8 chat is migrated), `toward` keeps the newest eight and slugs names, arrival cues stay quiet on chat open. Checked in an isolated SillyTavern 1.19: the standing bar, **Toward** and **Told** sections render, a storm fires the flash through the sound path, the Test button and sound-off raise no console errors. **Not heard through a speaker**
-- 2.8.0: `npm test` 129/129; `toward` clamps, drops zeros and junk, merges per key (a patch about one pair leaves the others), `0` deletes, the contract carries it only when the switch is on, and the card view names the ids and drops dangling ones. **Not visually verified**, same host-module reason as 2.7.0
-- 2.7.0: `npm test` 126/126; schema v5 migration, `bond` clamping, the prompt carrying `"bond"` only when the switch is on, and the rumour rules (same room only, `history`/`bond`/`promise` only, never twice, same tick same gossip). **The HUD bar and the *heard from* line are not visually verified** — `hud.js` imports SillyTavern's own modules, so a standalone browser probe drags in the whole app; the data reaching it is tested, the markup is not
-- 2.6.1: `npm test` 118/118; the place bed driven in headless Edge with every gain node recorded — a tavern mixes fire 0.115 and room 0.127 at volume 0.6, a harbour mixes water 0.196 and hum 0.029, turning place sounds off ramps all five layers to zero, twenty identical repaints add no nodes, and a `drip` cue builds its two oscillators on the spot. **Not heard through a speaker** (headless has no audio device) and **not yet run inside SillyTavern itself**
-- 2.6.0: `node tests/selftest.js` 114/114 and `node --check` on every file; the audio graph driven for real in headless Edge (the extension's own `audio.js`/`player.js`/`backdrop.js` loaded over HTTP with every gain node recorded): a storm bed reaches its gain and holds it, twenty identical repaints create no new nodes, clear weather ramps back to silence, indoors is measurably quieter than the same rain outdoors (0.053 vs 0.133), the flash layer exists at z-index 900 and animates, and `prefers-reduced-motion` stops the flash being created at all. **Not verified against a real speaker** (headless has no output device) and **not yet run inside SillyTavern itself**
+CI runs both on every push. Each release was also checked end to end in an isolated SillyTavern 1.19 against a mock model; what that covered, release by release, is in [docs/status.md](docs/status.md).
 
 Not claimed:
 
@@ -211,6 +147,8 @@ Not claimed:
 - Expression sprites with a real sprite pack (the lookup is feature-detected; avatar and monogram faces were checked)
 - SillyTavern 1.18 at runtime (the newer APIs used are feature-detected)
 - The HUD re-laying itself on a live window resize was checked with a synthetic resize event (the test browser pane does not fire real ones)
+
+The screenshots above come from a throwaway SillyTavern 1.19.1 with no model connected: the world was imported through **Manage → Import**, so the director did not run for them.
 
 ## License
 

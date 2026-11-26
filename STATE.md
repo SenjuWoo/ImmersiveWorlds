@@ -1,6 +1,11 @@
 # STATE — Immersive Worlds
 
-Updated 2026-10-20 · v2.8.1 · branch `main`
+Updated 2026-11-26 · v2.8.1 · branch `main`
+
+## Docs pass (2026-11-26)
+- README rebuilt to the fleet presentation standard; settings, project map and verification history moved to `docs/settings.md`, `docs/architecture.md`, `docs/status.md`. Images in `docs/presentation/` (cover and test shot from the presentation kit; HUD, person card and People panel from an isolated SillyTavern 1.19.1, scratch data root, no model, world imported through Manage → Import).
+- `npm test` 134/134, `npm run lint` 18/18. No code change, no tag.
+- Known quirk seen in Immersive Adventures while shooting: `guessFoes` names a foe after the first word ("cellar rat" → "Cellar"); IA-side, not here.
 
 ## Where things are
 - Live checkout: `SillyTavern/public/scripts/extensions/third-party/ImmersiveWorlds` (this repo)

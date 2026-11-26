@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — docs only (2026-11-26)
+
+- README rebuilt around install, usage and screenshots of the HUD, a person card and the People panel, taken in an isolated SillyTavern 1.19.1. The settings table, the project map and the release-by-release verification notes moved unchanged into `docs/settings.md`, `docs/architecture.md` and `docs/status.md`.
+- The log line in the README no longer names a stale version (it said 2.6.1; the extension prints its own version).
+- Design plans under `docs/superpowers/` no longer carry tool-specific headers or commit-trailer instructions.
+- No code change; the extension is still 2.8.1.
+
 ## 2.8.1 — 2026-10-20
 
 Review fixes for 2.7.0 and 2.8.0. Schema stays v5; old chats migrate on load.

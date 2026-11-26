@@ -1,6 +1,5 @@
 # Immersion HUD and World Logic Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship Immersive Worlds 2.1.0: a floating corner HUD (scene, people, items, map) that shows only what the user's character perceives, on top of code-enforced routes, travel time and per-person state.
 

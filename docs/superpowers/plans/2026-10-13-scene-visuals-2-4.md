@@ -1,6 +1,5 @@
 # Immersive Worlds 2.4.0 + 2.4.1 "Scene Visuals" Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the place you are in visible and make the time of day and weather matter on screen: 2.4.0 ships a free drawn backdrop, a real day/night grade, weather particles and a HUD scene strip; 2.4.1 adds opt-in generated place backdrops, portraits and item pictures through SillyTavern's Image Generation extension.
 
@@ -20,7 +19,7 @@
 - Art, backdrop mode and particles are presentation, not story state: they live in settings or in a separate chat-metadata key `immersive_worlds_art_v1` that swipe, regenerate and delete never rewind. Story state (`STATE_KEY`, patches, `TURN_KEY`) is not changed by this plan except the lazily-added person field `look` (Task 8).
 - `prefers-reduced-motion` turns particles and crossfades off. Backdrop and particles are `pointer-events: none` and never take clicks.
 - Worlds from 2.3 load unchanged; settings migrate silently (`ambientEffects` true/false becomes `backdrop` `'tint'`/`'off'`).
-- Public name in commits and docs: SenjuWoo. Commit trailer: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
+- Public name in commits and docs: SenjuWoo.
 - Release rule (per project): push, CI green on that exact SHA, tag, GitHub release zip (payload only), verify the asset bytes, then a copy-paste changelog for Nexus/LoversLab/Undertow.
 
 ## Review Focus

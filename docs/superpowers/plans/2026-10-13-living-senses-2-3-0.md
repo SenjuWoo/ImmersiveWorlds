@@ -1,6 +1,5 @@
 # Immersive Worlds 2.3.0 "Living Senses I" Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship 2.3.0: model picker for background calls, per-person dossier of learned facts, hints, and Tier-0 faces.
 
@@ -18,7 +17,7 @@
 - Only what {{user}} knows is shown (HUD, dossier, hints). `hidden`, `secrets`, `appearance`, `personality` never appear in hints or the HUD in `senses`/`nearby` modes.
 - Hints never send; they only fill the message box.
 - Swipe/regenerate/delete safe: director-authored `learned` rides in the patch/snapshot; user notes and deletions live in separate key `immersive_worlds_notes_v1` (not rewound).
-- Public name in all commits/docs: SenjuWoo. Commit trailer: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
+- Public name in all commits/docs: SenjuWoo.
 - Verified live 2026-10-13: OpenRouter `GET https://openrouter.ai/api/v1/models` is CORS-open (`Access-Control-Allow-Origin: *`); slug `deepseek/deepseek-v4.1-flash` exists (1,048,576 ctx; $0.0441/M in, $0.63/M out; supports `reasoning`, `reasoning_effort`, `response_format`); OpenRouter accepts `reasoning.effort` ∈ `max|xhigh|high|medium|low|minimal|none` and rejects `min` (observed 400).
 
 ## Review Focus

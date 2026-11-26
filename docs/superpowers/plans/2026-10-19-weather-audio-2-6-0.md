@@ -1,6 +1,5 @@
 # Immersive Worlds 2.6.0 "Weather you can hear" — Implementation Plan
 
-> **For agentic workers:** use `superpowers:executing-plans`. Steps use `- [ ]`.
 
 **Goal:** a continuous, synthesised weather bed (rain, wind, snow hush, fog) with thunder after a lightning flash, muffled indoors, driven by world state and rewound by swipes like the HUD.
 
